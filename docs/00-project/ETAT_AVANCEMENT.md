@@ -68,6 +68,7 @@ Le dépôt contient trois produits principaux :
 - L’API émet un certificat client lié au client et à l’appareil. Les battements de cœur et synchronisations utilisent ensuite le mTLS.
 - La rotation et la révocation des certificats sont prises en charge. Une réponse perdue pendant l’enrôlement ou la rotation peut être rejouée avec la même clé, mais une clé différente est rejetée.
 - L’inventaire remonté comprend le nom d’hôte, le numéro de série, les interfaces, adresses MAC et IP locales, le système, les versions de l’agent/lecteur et l’espace disque.
+- La liste des appareils expose directement le nom choisi, le nom système réel, le numéro de série ainsi que toutes les adresses IP et MAC avec leur interface (`wlan0`, `eth0`, etc.). Ces valeurs sont actualisées à chaque battement de cœur.
 - Un test Kestrel HTTPS réel vérifie qu’un certificat enrôlé est accepté et qu’un certificat absent ou non approuvé est refusé.
 
 ### 3.5 Licences et fonctionnement hors ligne

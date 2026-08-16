@@ -2,6 +2,12 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import type { Session } from './App'
 
 type PostJson = <T>(path: string, body: unknown) => Promise<T>
+type DeviceNetwork = {
+  interfaceName: string
+  macAddress: string | null
+  localAddresses: string[]
+  observedAtUtc: string
+}
 type Device = {
   id: string
   displayName: string
@@ -9,6 +15,7 @@ type Device = {
   health: string
   hostname: string | null
   serialNumber: string | null
+  networkInterfaces: DeviceNetwork[]
   licenseState: string | null
   licenseExpiresAtUtc: string | null
 }
@@ -212,8 +219,17 @@ function OperationsDashboard({ session, post }: { session: Session; post: PostJs
 
       <section className="data-section" id="section-1" aria-labelledby="devices-title">
         <div className="section-heading"><div><p className="eyebrow">Inventaire</p><h2 id="devices-title">Appareils Raspberry Pi</h2></div><p>Données réelles déclarées par l’agent.</p></div>
-        <div className="table-wrap"><table><thead><tr><th>Appareil</th><th>État</th><th>Santé</th><th>Série</th><th>Licence</th><th>Expiration</th></tr></thead><tbody>
-          {devices.map((device) => <tr key={device.id}><td><strong>{device.displayName}</strong><small>{device.hostname ?? 'En attente d’enrôlement'}</small></td><td><Badge value={device.state} /></td><td><Badge value={device.health} /></td><td><code>{device.serialNumber ?? '—'}</code></td><td><Badge value={device.licenseState ?? 'aucune'} /></td><td>{formatDate(device.licenseExpiresAtUtc)}</td></tr>)}
+        <div className="table-wrap"><table><thead><tr><th>Nom de l’appareil</th><th>Nom système</th><th>Numéro de série</th><th>Adresses IP</th><th>Adresses MAC</th><th>État</th><th>Santé</th><th>Licence</th></tr></thead><tbody>
+          {devices.map((device) => <tr key={device.id}>
+            <td><strong>{device.displayName}</strong></td>
+            <td><code>{device.hostname ?? '—'}</code></td>
+            <td><code>{device.serialNumber ?? '—'}</code></td>
+            <td><NetworkAddresses device={device} kind="ip" /></td>
+            <td><NetworkAddresses device={device} kind="mac" /></td>
+            <td><Badge value={device.state} /></td>
+            <td><Badge value={device.health} /></td>
+            <td><Badge value={device.licenseState ?? 'aucune'} /></td>
+          </tr>)}
         </tbody></table>{devices.length === 0 && <p className="empty-state">Aucun appareil dans ce tenant.</p>}</div>
       </section>
 
@@ -307,6 +323,27 @@ function OperationsDashboard({ session, post }: { session: Session; post: PostJs
 
 function Badge({ value }: { value: string }) {
   return <span className={`state-badge state-${value.toLowerCase()}`}>{value}</span>
+}
+
+function NetworkAddresses({ device, kind }: { device: Device; kind: 'ip' | 'mac' }) {
+  const values = device.networkInterfaces.flatMap((network) => {
+    if (kind === 'mac') {
+      return network.macAddress ? [{ interfaceName: network.interfaceName, value: formatMac(network.macAddress) }] : []
+    }
+
+    return network.localAddresses.map((value) => ({ interfaceName: network.interfaceName, value }))
+  })
+
+  if (values.length === 0) return <span>—</span>
+
+  return <span className="network-values">{values.map((item) => (
+    <span key={`${item.interfaceName}-${item.value}`}><code>{item.value}</code><small>{item.interfaceName}</small></span>
+  ))}</span>
+}
+
+function formatMac(value: string) {
+  const compact = value.replace(/[:-]/g, '').toUpperCase()
+  return compact.length === 12 ? compact.match(/.{2}/g)?.join(':') ?? compact : value
 }
 
 function formatDate(value: string | null) {

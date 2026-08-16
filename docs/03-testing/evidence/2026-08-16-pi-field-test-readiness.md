@@ -12,6 +12,7 @@ This workstation gate validates the deliverable prepared for a Raspberry Pi 4/5 
 | .NET tests | Passed; 84/84 (44 domain, 10 agent, 30 integration) |
 | PostgreSQL boundary | Passed against real PostgreSQL 18; authentication and forced-RLS isolation included |
 | React tests | Passed; 7/7 |
+| Device inventory path | Passed; hostname, hardware serial, interface name, local IP addresses and normalized MAC address flow through enrollment/API storage and render in the administration dashboard |
 | Browser/accessibility | Passed; 5/5 Playwright/axe scenarios |
 | Web lint, type-check and builds | Passed |
 | Documentation verification | Passed; 265 requirements, exact traceability and zero broken local links |

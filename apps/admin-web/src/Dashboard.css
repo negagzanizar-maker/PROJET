@@ -32,6 +32,12 @@ th { color: #617587; background: #f7f9fb; font-size: .72rem; text-transform: upp
 td strong, td small { display: block; }
 td small { margin-top: 3px; color: #718396; }
 
+.network-values,
+.network-values > span { display: block; }
+.network-values > span + span { margin-top: 7px; }
+.network-values code { font-size: .76rem; }
+.network-values small { margin-top: 1px; }
+
 .state-badge {
   display: inline-flex;
   padding: 5px 9px;

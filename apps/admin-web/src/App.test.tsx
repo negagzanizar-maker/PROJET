@@ -21,11 +21,16 @@ describe('administration authentication shell', () => {
 
   it('sends the in-memory CSRF token with sign-in and renders the verified dashboard', async () => {
     const authenticatedSession = { ...anonymousSession, authenticated: true, authenticationStage: 'full', csrfToken: 'authenticated-csrf', userId: '11111111-1111-1111-1111-111111111111', email: 'admin@example.test', displayName: 'Admin Test', tenantId: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', tenantRole: 'TenantAdmin', mfaSatisfied: true }
+    const deviceInventory = [{
+      id: '22222222-2222-2222-2222-222222222222', displayName: 'Écran accueil', state: 'active', health: 'online',
+      hostname: 'pi-lobby', serialNumber: '10000000ABCD1234', licenseState: 'active', licenseExpiresAtUtc: '2026-09-15T12:00:00Z',
+      networkInterfaces: [{ interfaceName: 'wlan0', macAddress: 'B827EB123456', localAddresses: ['192.168.1.44'], observedAtUtc: '2026-08-16T12:00:00Z' }],
+    }]
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify(anonymousSession), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ status: 'authenticated' }), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify(authenticatedSession), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify([]), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(deviceInventory), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify([]), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify([]), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify([]), { status: 200 }))
@@ -43,7 +48,10 @@ describe('administration authentication shell', () => {
     expect((signInOptions.headers as Record<string, string>)['X-CSRF-TOKEN']).toBe('csrf-test-token')
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(10))
     expect(screen.getByRole('heading', { name: 'Appareils Raspberry Pi' })).toBeInTheDocument()
-    expect(screen.getByText('Aucun appareil dans ce tenant.')).toBeInTheDocument()
+    expect(screen.getByText('pi-lobby')).toBeInTheDocument()
+    expect(screen.getByText('10000000ABCD1234')).toBeInTheDocument()
+    expect(screen.getByText('192.168.1.44')).toBeInTheDocument()
+    expect(screen.getByText('B8:27:EB:12:34:56')).toBeInTheDocument()
   })
 
   it('renders the platform catalog and creates an isolated customer with its one-time invitation', async () => {

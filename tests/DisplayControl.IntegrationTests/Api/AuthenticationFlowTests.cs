@@ -273,6 +273,11 @@ public sealed class AuthenticationFlowTests : IClassFixture<AuthenticationFlowFi
         var activeDevice = Assert.Single(devices ?? []);
         Assert.Equal(DeviceLifecycleState.Active, activeDevice.State);
         Assert.Equal("10000000ABCD1234", activeDevice.SerialNumber);
+        Assert.Equal("pi-lobby", activeDevice.Hostname);
+        var activeNetwork = Assert.Single(activeDevice.NetworkInterfaces);
+        Assert.Equal("eth0", activeNetwork.InterfaceName);
+        Assert.Equal("020000000001", activeNetwork.MacAddress);
+        Assert.Equal(TestLocalAddresses, activeNetwork.LocalAddresses);
 
         LicenseResponse createdLicense;
         var licenseStart = DateTimeOffset.UtcNow.AddMinutes(-1);

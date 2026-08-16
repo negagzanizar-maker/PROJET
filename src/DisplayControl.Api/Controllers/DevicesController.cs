@@ -40,6 +40,16 @@ public sealed class DevicesController(
             .ToListAsync(cancellationToken);
         var latestLicenses = licenses.GroupBy(value => value.DeviceId)
             .ToDictionary(group => group.Key, group => group.First());
+        var networkInterfaces = await dbContext.DeviceNetworkInterfaces.AsNoTracking()
+            .Where(value => deviceIds.Contains(value.DeviceId))
+            .OrderBy(value => value.DeviceId)
+            .ThenBy(value => value.InterfaceName)
+            .ToListAsync(cancellationToken);
+        var networksByDevice = networkInterfaces
+            .GroupBy(value => value.DeviceId)
+            .ToDictionary(
+                group => group.Key,
+                group => (IReadOnlyList<DeviceNetworkResponse>)group.Select(ToNetworkResponse).ToArray());
         var nowUtc = timeProvider.GetUtcNow();
 
         return Ok(devices.Select(device => new DeviceSummaryResponse(
@@ -54,6 +64,7 @@ public sealed class DevicesController(
             license?.ExpiresAtUtc,
             device.AppliedManifestVersion,
             device.PlaybackHealthCode,
+            networksByDevice.GetValueOrDefault(device.Id, []),
             device.ConcurrencyToken)).ToArray());
     }
 
@@ -72,15 +83,11 @@ public sealed class DevicesController(
             return NotFound();
         }
 
-        var networks = await dbContext.DeviceNetworkInterfaces.AsNoTracking()
+        var networkEntities = await dbContext.DeviceNetworkInterfaces.AsNoTracking()
             .Where(value => value.DeviceId == deviceId)
             .OrderBy(value => value.InterfaceName)
-            .Select(value => new DeviceNetworkResponse(
-                value.InterfaceName,
-                value.MacAddressNormalized,
-                value.LocalAddressesJson,
-                value.ObservedAtUtc))
             .ToListAsync(cancellationToken);
+        var networks = networkEntities.Select(ToNetworkResponse).ToArray();
         var license = await dbContext.Licenses.AsNoTracking()
             .Where(value => value.DeviceId == deviceId)
             .OrderByDescending(value => value.ExpiresAtUtc)
@@ -310,6 +317,12 @@ public sealed class DevicesController(
         ? userId
         : throw new InvalidOperationException("Authenticated principal has no valid user identifier.");
 
+    private static DeviceNetworkResponse ToNetworkResponse(DeviceNetworkInterface value) => new(
+        value.InterfaceName,
+        value.MacAddressNormalized,
+        JsonSerializer.Deserialize<string[]>(value.LocalAddressesJson) ?? [],
+        value.ObservedAtUtc);
+
     private static string CalculateHealth(DateTimeOffset? lastSeenUtc, DateTimeOffset nowUtc) => lastSeenUtc switch
     {
         null => "offline",
@@ -380,6 +393,7 @@ public sealed record DeviceSummaryResponse(
     DateTimeOffset? LicenseExpiresAtUtc,
     long? AppliedManifestVersion,
     string? PlaybackHealthCode,
+    IReadOnlyList<DeviceNetworkResponse> NetworkInterfaces,
     Guid ConcurrencyToken);
 
 public sealed record DeviceDetailResponse(
@@ -410,5 +424,5 @@ public sealed record DeviceLicenseSummaryResponse(
 public sealed record DeviceNetworkResponse(
     string InterfaceName,
     string? MacAddress,
-    string LocalAddressesJson,
+    IReadOnlyList<string> LocalAddresses,
     DateTimeOffset ObservedAtUtc);

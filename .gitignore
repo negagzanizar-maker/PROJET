@@ -1,0 +1,40 @@
+# .NET
+**/bin/
+**/obj/
+*.user
+*.suo
+TestResults/
+coverage/
+artifacts/
+
+# Node / Vite
+node_modules/
+**/dist/
+**/.vite/
+*.tsbuildinfo
+playwright-report/
+test-results/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+appsettings.Local.json
+secrets/
+certificates/private/
+*.pfx
+*.p12
+*.key
+
+# Local service data
+.data/
+
+# IDE / OS
+.vs/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Generated report output (sources stay tracked)
+docs/04-report/output/

@@ -322,6 +322,7 @@ public sealed partial class DisplayControlDbContext
         entity.Property(value => value.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
         entity.Property(value => value.NextAttemptAtUtc).HasColumnName("next_attempt_at_utc").IsRequired();
         entity.Property(value => value.ProcessedAtUtc).HasColumnName("processed_at_utc");
+        entity.Property(value => value.FailedAtUtc).HasColumnName("failed_at_utc");
         entity.Property(value => value.AttemptCount).HasColumnName("attempt_count").IsRequired();
         entity.Property(value => value.LastSafeErrorCode).HasColumnName("last_safe_error_code").HasMaxLength(64);
         entity.Property(value => value.ConcurrencyToken).HasColumnName("concurrency_token").IsConcurrencyToken();
@@ -335,7 +336,7 @@ public sealed partial class DisplayControlDbContext
             .HasForeignKey(value => value.TenantId)
             .OnDelete(DeleteBehavior.Restrict)
             .HasConstraintName("fk_identity_notifications_tenants");
-        entity.HasIndex(value => new { value.ProcessedAtUtc, value.NextAttemptAtUtc })
+        entity.HasIndex(value => new { value.ProcessedAtUtc, value.FailedAtUtc, value.NextAttemptAtUtc })
             .HasDatabaseName("ix_identity_notifications_pending");
     }
 }

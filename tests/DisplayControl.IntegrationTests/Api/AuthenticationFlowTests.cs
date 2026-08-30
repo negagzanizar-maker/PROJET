@@ -49,7 +49,7 @@ public sealed class AuthenticationFlowTests : IClassFixture<AuthenticationFlowFi
     }
 
     [Fact]
-    public async Task PasswordMfaRbacInvitationAndSignOutFlowUsesRealPostgreSql18()
+    public async Task TenantIdentityDeviceAndContentLifecycleUsesRealPostgreSql18()
     {
         using var client = _fixture.CreateClient();
         using (var readiness = await client.GetAsync("/_health/ready"))
@@ -965,6 +965,11 @@ public sealed class AuthenticationFlowTests : IClassFixture<AuthenticationFlowFi
 
         Assert.False((await GetSessionAsync(client)).Authenticated);
 
+    }
+
+    [Fact]
+    public async Task PlatformBootstrapAndTenantLifecycleUsesRealPostgreSql18()
+    {
         using var platformClient = _fixture.CreateClient();
         var platformAnonymousSession = await GetSessionAsync(platformClient);
         Assert.True(_fixture.VerifyPlatformBootstrapToken(AuthenticationFlowFixture.PlatformBootstrapToken));

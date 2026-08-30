@@ -9,7 +9,8 @@ public sealed record NotificationDeliveryOptions(
     int SmtpPort,
     string? SmtpUsername,
     string? SmtpPassword,
-    MailAddress FromAddress)
+    MailAddress FromAddress,
+    int MaximumAttempts)
 {
     public static NotificationDeliveryOptions FromConfiguration(IConfiguration configuration)
     {
@@ -18,12 +19,14 @@ public sealed record NotificationDeliveryOptions(
         var host = configuration["Notifications:Smtp:Host"];
         var from = configuration["Notifications:Smtp:FromAddress"];
         var port = configuration.GetValue<int?>("Notifications:Smtp:Port") ?? 587;
+        var maximumAttempts = configuration.GetValue<int?>("Notifications:MaximumAttempts") ?? 8;
         if (string.IsNullOrWhiteSpace(database) ||
             !Uri.TryCreate(publicBaseUrl, UriKind.Absolute, out var publicBaseUri) ||
             publicBaseUri.Scheme != Uri.UriSchemeHttps ||
             string.IsNullOrWhiteSpace(host) ||
             host.Length > 253 ||
             port is < 1 or > 65535 ||
+            maximumAttempts is < 1 or > 100 ||
             string.IsNullOrWhiteSpace(from))
         {
             throw new InvalidOperationException(
@@ -54,6 +57,7 @@ public sealed record NotificationDeliveryOptions(
             port,
             username,
             password,
-            fromAddress);
+            fromAddress,
+            maximumAttempts);
     }
 }

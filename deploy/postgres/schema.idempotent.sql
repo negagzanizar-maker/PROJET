@@ -1716,14 +1716,14 @@ END $EF$;
 DO $EF$
 BEGIN
     IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260827122644_HeartbeatBootIdempotency') THEN
-    ALTER TABLE app.device_heartbeats ADD boot_id uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000';
+    ALTER TABLE app.device_heartbeats ADD boot_id uuid;
     END IF;
 END $EF$;
 
 DO $EF$
 BEGIN
     IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260827122644_HeartbeatBootIdempotency') THEN
-    ALTER TABLE app.device_heartbeats ADD request_sha256 bytea NOT NULL DEFAULT BYTEA E'\\x';
+    ALTER TABLE app.device_heartbeats ADD request_sha256 bytea;
     END IF;
 END $EF$;
 
@@ -1731,6 +1731,30 @@ DO $EF$
 BEGIN
     IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260827122644_HeartbeatBootIdempotency') THEN
     ALTER TABLE app.device_heartbeats ADD response_json jsonb;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260827122644_HeartbeatBootIdempotency') THEN
+    UPDATE app.device_heartbeats
+    SET boot_id = id,
+        request_sha256 = decode(repeat('00', 32), 'hex')
+    WHERE boot_id IS NULL OR request_sha256 IS NULL;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260827122644_HeartbeatBootIdempotency') THEN
+    ALTER TABLE app.device_heartbeats ALTER COLUMN boot_id SET NOT NULL;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260827122644_HeartbeatBootIdempotency') THEN
+    ALTER TABLE app.device_heartbeats ALTER COLUMN request_sha256 SET NOT NULL;
     END IF;
 END $EF$;
 
@@ -1746,6 +1770,59 @@ BEGIN
     IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260827122644_HeartbeatBootIdempotency') THEN
     INSERT INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion")
     VALUES ('20260827122644_HeartbeatBootIdempotency', '10.0.7');
+    END IF;
+END $EF$;
+COMMIT;
+
+START TRANSACTION;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260830134826_NotificationDeadLetter') THEN
+    DROP INDEX app.ix_identity_notifications_pending;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260830134826_NotificationDeadLetter') THEN
+    ALTER TABLE app.identity_notifications ADD failed_at_utc timestamp with time zone;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260830134826_NotificationDeadLetter') THEN
+    CREATE INDEX ix_identity_notifications_pending ON app.identity_notifications (processed_at_utc, failed_at_utc, next_attempt_at_utc);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260830134826_NotificationDeadLetter') THEN
+    CREATE POLICY device_heartbeats_retention_select ON app.device_heartbeats
+        FOR SELECT
+        USING (current_user = 'display_control_maintenance' AND current_setting('app.data_retention', true) = 'true');
+
+    CREATE POLICY device_heartbeats_retention_delete ON app.device_heartbeats
+        FOR DELETE
+        USING (current_user = 'display_control_maintenance' AND current_setting('app.data_retention', true) = 'true');
+
+    CREATE POLICY audit_events_retention_select ON app.audit_events
+        FOR SELECT
+        USING (current_user = 'display_control_maintenance' AND current_setting('app.data_retention', true) = 'true');
+
+    CREATE POLICY audit_events_retention_delete ON app.audit_events
+        FOR DELETE
+        USING (current_user = 'display_control_maintenance' AND current_setting('app.data_retention', true) = 'true');
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260830134826_NotificationDeadLetter') THEN
+    INSERT INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion")
+    VALUES ('20260830134826_NotificationDeadLetter', '10.0.7');
     END IF;
 END $EF$;
 COMMIT;

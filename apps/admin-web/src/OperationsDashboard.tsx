@@ -1,94 +1,19 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import type { Session } from './App'
-
-type PostJson = <T>(path: string, body: unknown) => Promise<T>
-type DeviceNetwork = {
-  interfaceName: string
-  macAddress: string | null
-  localAddresses: string[]
-  observedAtUtc: string
-}
-type Device = {
-  id: string
-  displayName: string
-  state: string
-  health: string
-  hostname: string | null
-  serialNumber: string | null
-  networkInterfaces: DeviceNetwork[]
-  licenseState: string | null
-  licenseExpiresAtUtc: string | null
-}
-type License = {
-  id: string
-  deviceId: string
-  controlState: string
-  effectiveState: string
-  validFromUtc: string
-  expiresAtUtc: string
-  concurrencyToken: string
-}
-type DeviceGroup = {
-  id: string
-  name: string
-  description: string | null
-  deviceIds: string[]
-  concurrencyToken: string
-}
-type ContentVersion = {
-  id: string
-  byteLength: number
-  detectedMimeType: string
-  originalDisplayFileName: string
-  scanState: string
-  rejectionCode: string | null
-}
-type ContentItem = {
-  id: string
-  title: string
-  mediaKind: string
-  lifecycleState: string
-  concurrencyToken: string
-  latestVersion: ContentVersion | null
-}
-type PlaylistVersion = {
-  id: string
-  publicationState: string
-  itemCount: number
-}
-type Playlist = {
-  id: string
-  name: string
-  description: string | null
-  latestVersion: PlaylistVersion | null
-}
-type EnrollmentCode = {
-  enrollmentCode: string
-  expiresAtUtc: string
-}
-type Invitation = {
-  email: string
-  token: string
-  expiresAtUtc: string
-}
-type Member = {
-  membershipId: string
-  userId: string
-  displayName: string
-  email: string
-  role: string
-  state: string
-  mfaEnabled: boolean
-  concurrencyToken: string
-}
-type AuditEvent = {
-  id: string
-  action: string
-  targetType: string
-  outcome: string
-  reasonCode: string | null
-  occurredAtUtc: string
-}
+import { deviceName, formatDate, optionalUtc } from './operations/formatters'
+import { Badge, NetworkAddresses } from './operations/presentation'
+import type {
+  AuditEvent,
+  ContentItem,
+  Device,
+  DeviceGroup,
+  EnrollmentCode,
+  Invitation,
+  License,
+  Member,
+  Playlist,
+  PostJson,
+} from './operations/types'
 
 async function readApiProblem(response: Response): Promise<string> {
   try {
@@ -319,44 +244,6 @@ function OperationsDashboard({ session, post }: { session: Session; post: PostJs
       {oneTimeSecret && <div className="one-time-secret" role="status"><strong>{oneTimeSecret.label} — à copier maintenant</strong><code>{oneTimeSecret.value}</code><span>Expire le {formatDate(oneTimeSecret.expiresAtUtc)}</span></div>}
     </>
   )
-}
-
-function Badge({ value }: { value: string }) {
-  return <span className={`state-badge state-${value.toLowerCase()}`}>{value}</span>
-}
-
-function NetworkAddresses({ device, kind }: { device: Device; kind: 'ip' | 'mac' }) {
-  const values = device.networkInterfaces.flatMap((network) => {
-    if (kind === 'mac') {
-      return network.macAddress ? [{ interfaceName: network.interfaceName, value: formatMac(network.macAddress) }] : []
-    }
-
-    return network.localAddresses.map((value) => ({ interfaceName: network.interfaceName, value }))
-  })
-
-  if (values.length === 0) return <span>—</span>
-
-  return <span className="network-values">{values.map((item) => (
-    <span key={`${item.interfaceName}-${item.value}`}><code>{item.value}</code><small>{item.interfaceName}</small></span>
-  ))}</span>
-}
-
-function formatMac(value: string) {
-  const compact = value.replace(/[:-]/g, '').toUpperCase()
-  return compact.length === 12 ? compact.match(/.{2}/g)?.join(':') ?? compact : value
-}
-
-function formatDate(value: string | null) {
-  return value ? new Date(value).toLocaleString('fr-FR') : '—'
-}
-
-function deviceName(devices: Device[], deviceId: string) {
-  return devices.find((device) => device.id === deviceId)?.displayName ?? deviceId
-}
-
-function optionalUtc(value: FormDataEntryValue | null) {
-  const text = typeof value === 'string' ? value.trim() : ''
-  return text ? new Date(text).toISOString() : null
 }
 
 export default OperationsDashboard

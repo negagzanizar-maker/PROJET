@@ -4,6 +4,8 @@ using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
 using DisplayControl.Api.Notifications;
 using DisplayControl.Api.Operations;
+using DisplayControl.Api.Devices;
+using DisplayControl.Api.Identity;
 using DisplayControl.Api.Scheduling;
 using DisplayControl.Api.Security;
 using DisplayControl.Application.Content;
@@ -31,6 +33,13 @@ var builder = WebApplication.CreateBuilder(new WebApplicationOptions
     Args = args,
     WebRootPath = Directory.Exists(packagedWebRoot) ? packagedWebRoot : null
 });
+
+var deploymentInstanceCount = builder.Configuration.GetValue<int?>("Deployment:InstanceCount") ?? 1;
+if (deploymentInstanceCount != 1)
+{
+    throw new InvalidOperationException(
+        "Deployment:InstanceCount must be 1 while authentication account rate limiting uses local memory.");
+}
 
 var contentMaximumObjectBytes = builder.Configuration.GetValue<long?>("ContentStorage:MaximumObjectBytes")
     ?? 268_435_456;
@@ -127,6 +136,12 @@ if (builder.Configuration.GetValue<bool>("Notifications:DeliveryEnabled"))
     builder.Services.AddHostedService<IdentityNotificationDeliveryWorker>();
 }
 
+if (builder.Configuration.GetValue<bool>("Operations:Retention:Enabled"))
+{
+    builder.Services.AddSingleton(OperationalDataRetentionOptions.FromConfiguration(builder.Configuration));
+    builder.Services.AddHostedService<OperationalDataRetentionWorker>();
+}
+
 var privateStorageRoot = isTesting
     ? Path.Combine(Path.GetTempPath(), "display-control-api-tests", Guid.NewGuid().ToString("N"))
     : builder.Configuration["ContentStorage:RootDirectory"];
@@ -205,8 +220,10 @@ builder.Services.AddSingleton(new DeviceProtocolOptions(TimeSpan.FromHours(offli
 builder.Services.AddScoped<UserSessionService>();
 builder.Services.AddScoped<UniformPasswordFailureService>();
 builder.Services.AddScoped<TenantSecurityAuditService>();
+builder.Services.AddScoped<InvitationWorkflow>();
 builder.Services.AddScoped<AuthenticationAccountRateLimitFilter>();
-builder.Services.AddSingleton<AuthenticationAccountRateLimiter>();
+builder.Services.AddSingleton(AuthenticationAccountRateLimitOptions.Default);
+builder.Services.AddSingleton<IAuthenticationAccountRateLimiter, AuthenticationAccountRateLimiter>();
 builder.Services.AddSingleton<IAuthorizationHandler, TenantRouteRequirement>();
 
 builder.Services
@@ -365,6 +382,7 @@ builder.Services.AddAuthorization(options =>
 builder.Services.AddSingleton<IAuthorizationHandler, RecentMfaAuthorizationHandler>();
 builder.Services.AddScoped<DesiredStateCompilationService>();
 builder.Services.AddScoped<DesiredStateResolver>();
+builder.Services.AddScoped<DeviceHeartbeatWorkflow>();
 
 builder.Services.AddRateLimiter(options =>
 {
@@ -434,6 +452,13 @@ builder.Services
         new JsonStringEnumConverter(JsonNamingPolicy.CamelCase, allowIntegerValues: false)));
 builder.Services.AddProblemDetails();
 builder.Services.AddOpenApi("v1");
+builder.Services.AddSingleton(ReadinessProbeOptions.Default);
+builder.Services.AddSingleton<IReadinessDependency, DatabaseReadinessDependency>();
+builder.Services.AddSingleton<IReadinessDependency, PrivateStorageReadinessDependency>();
+builder.Services.AddSingleton<IReadinessDependency, CryptographicReadinessDependency>();
+builder.Services.AddSingleton<IReadinessDependency, MalwareScannerReadinessDependency>();
+builder.Services.AddSingleton<IReadinessDependency, NotificationReadinessDependency>();
+builder.Services.AddSingleton<CachedReadinessProbe>();
 builder.Services.AddHealthChecks()
     .AddCheck<DependencyReadinessHealthCheck>("dependencies", tags: ["ready"]);
 

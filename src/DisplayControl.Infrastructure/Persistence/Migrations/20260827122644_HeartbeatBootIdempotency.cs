@@ -21,16 +21,14 @@ namespace DisplayControl.Infrastructure.Persistence.Migrations
                 schema: "app",
                 table: "device_heartbeats",
                 type: "uuid",
-                nullable: false,
-                defaultValue: new Guid("00000000-0000-0000-0000-000000000000"));
+                nullable: true);
 
             migrationBuilder.AddColumn<byte[]>(
                 name: "request_sha256",
                 schema: "app",
                 table: "device_heartbeats",
                 type: "bytea",
-                nullable: false,
-                defaultValue: new byte[0]);
+                nullable: true);
 
             migrationBuilder.AddColumn<string>(
                 name: "response_json",
@@ -38,6 +36,34 @@ namespace DisplayControl.Infrastructure.Persistence.Migrations
                 table: "device_heartbeats",
                 type: "jsonb",
                 nullable: true);
+
+            migrationBuilder.Sql(
+                """
+                UPDATE app.device_heartbeats
+                SET boot_id = id,
+                    request_sha256 = decode(repeat('00', 32), 'hex')
+                WHERE boot_id IS NULL OR request_sha256 IS NULL;
+                """);
+
+            migrationBuilder.AlterColumn<Guid>(
+                name: "boot_id",
+                schema: "app",
+                table: "device_heartbeats",
+                type: "uuid",
+                nullable: false,
+                oldClrType: typeof(Guid),
+                oldType: "uuid",
+                oldNullable: true);
+
+            migrationBuilder.AlterColumn<byte[]>(
+                name: "request_sha256",
+                schema: "app",
+                table: "device_heartbeats",
+                type: "bytea",
+                nullable: false,
+                oldClrType: typeof(byte[]),
+                oldType: "bytea",
+                oldNullable: true);
 
             migrationBuilder.CreateIndex(
                 name: "ux_device_heartbeats_device_boot_sequence",

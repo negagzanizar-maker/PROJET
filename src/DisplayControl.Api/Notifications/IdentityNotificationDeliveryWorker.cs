@@ -22,6 +22,10 @@ public sealed class IdentityNotificationDeliveryWorker(
         LogLevel.Warning,
         new EventId(2101, "NotificationDeliveryFailure"),
         "Identity notification {NotificationId} failed with {SafeErrorCode} on attempt {Attempt}.");
+    private static readonly Action<ILogger, Guid, int, Exception?> LogDeliveryAbandoned = LoggerMessage.Define<Guid, int>(
+        LogLevel.Error,
+        new EventId(2102, "NotificationDeliveryAbandoned"),
+        "Identity notification {NotificationId} reached the terminal failure state after {AttemptCount} attempts.");
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -63,6 +67,7 @@ public sealed class IdentityNotificationDeliveryWorker(
             SELECT id, notification_type, normalized_recipient_email, protection_scheme, protected_payload, attempt_count
             FROM app.identity_notifications
             WHERE processed_at_utc IS NULL
+              AND failed_at_utc IS NULL
               AND next_attempt_at_utc <= @now
             ORDER BY created_at_utc, id
             FOR UPDATE SKIP LOCKED
@@ -131,12 +136,25 @@ public sealed class IdentityNotificationDeliveryWorker(
         }
 
         var nowUtc = timeProvider.GetUtcNow();
-        var nextAttemptUtc = nowUtc.Add(Backoff(row.AttemptCount + 1));
+        var decision = NotificationDeliveryAttemptPolicy.Evaluate(
+            row.AttemptCount,
+            safeErrorCode is null,
+            options.MaximumAttempts,
+            nowUtc);
+        if (decision.IsTerminalFailure)
+        {
+            LogDeliveryAbandoned(logger, row.Id, decision.AttemptCount, null);
+        }
+
         const string updateSql =
             """
             UPDATE app.identity_notifications
             SET processed_at_utc = CASE WHEN @safe_error_code IS NULL THEN @now ELSE NULL END,
-                next_attempt_at_utc = CASE WHEN @safe_error_code IS NULL THEN next_attempt_at_utc ELSE @next_attempt END,
+                failed_at_utc = CASE WHEN @is_terminal_failure THEN @now ELSE NULL END,
+                next_attempt_at_utc = CASE
+                    WHEN @safe_error_code IS NULL OR @is_terminal_failure THEN next_attempt_at_utc
+                    ELSE @next_attempt
+                END,
                 attempt_count = attempt_count + 1,
                 last_safe_error_code = @safe_error_code,
                 concurrency_token = @concurrency_token
@@ -147,7 +165,8 @@ public sealed class IdentityNotificationDeliveryWorker(
             update.Parameters.Add("safe_error_code", NpgsqlDbType.Varchar).Value =
                 (object?)safeErrorCode ?? DBNull.Value;
             update.Parameters.AddWithValue("now", nowUtc);
-            update.Parameters.AddWithValue("next_attempt", nextAttemptUtc);
+            update.Parameters.AddWithValue("next_attempt", decision.NextAttemptAtUtc);
+            update.Parameters.AddWithValue("is_terminal_failure", decision.IsTerminalFailure);
             update.Parameters.AddWithValue("concurrency_token", Guid.NewGuid());
             update.Parameters.AddWithValue("id", row.Id);
             await update.ExecuteNonQueryAsync(cancellationToken);
@@ -184,9 +203,6 @@ public sealed class IdentityNotificationDeliveryWorker(
 
         await client.SendMailAsync(message, cancellationToken);
     }
-
-    private static TimeSpan Backoff(int attempt) =>
-        TimeSpan.FromMinutes(Math.Min(Math.Pow(2, Math.Clamp(attempt - 1, 0, 6)), 60));
 
     private sealed record NotificationRow(
         Guid Id,

@@ -1,31 +1,17 @@
 using System.ComponentModel.DataAnnotations;
 using System.Security.Claims;
-using System.Text.Json;
-
+using DisplayControl.Api.Identity;
 using DisplayControl.Api.Security;
-using DisplayControl.Application.Security;
 using DisplayControl.Domain.Identity;
-using DisplayControl.Infrastructure.Identity;
-using DisplayControl.Infrastructure.Persistence;
-using DisplayControl.Infrastructure.Tenancy;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
-using Microsoft.EntityFrameworkCore;
-using Npgsql;
 
 namespace DisplayControl.Api.Controllers;
 
 [ApiController]
-public sealed class InvitationsController(
-    DisplayControlDbContext dbContext,
-    UserManager<ApplicationUser> userManager,
-    ScopedTenantContext tenantContext,
-    ITenantCapabilityTokenService capabilityTokenService,
-    ISensitivePayloadProtector payloadProtector,
-    TenantSecurityAuditService securityAudit,
-    TimeProvider timeProvider) : ControllerBase
+public sealed class InvitationsController(InvitationWorkflow workflow) : ControllerBase
 {
     [HttpPost("api/v1/tenants/{tenantId:guid}/invitations")]
     [Authorize(Policy = AuthorizationPolicies.TenantAdministrator)]
@@ -35,73 +21,22 @@ public sealed class InvitationsController(
         CreateInvitationRequest request,
         CancellationToken cancellationToken)
     {
-        var creatorId = ParseCurrentUserId();
-        var normalizedEmail = userManager.NormalizeEmail(request.Email.Trim());
-        if (string.IsNullOrWhiteSpace(normalizedEmail))
-        {
-            return BadRequest(new ValidationProblemDetails(new Dictionary<string, string[]>
-            {
-                ["email"] = ["A valid email address is required."]
-            })
-            {
-                Type = "https://docs.example.invalid/problems/validation",
-                Title = "The request could not be accepted.",
-                Status = StatusCodes.Status400BadRequest,
-                Extensions = { ["code"] = "validation_failed" }
-            });
-        }
-
-        var nowUtc = timeProvider.GetUtcNow();
-        var expiresAtUtc = nowUtc.AddHours(24);
-        var capability = capabilityTokenService.Generate(tenantId);
-        var invitation = new Invitation(
-            Guid.NewGuid(),
+        var result = await workflow.CreateAsync(
             tenantId,
-            normalizedEmail,
-            request.Role,
-            capability.Digest,
-            expiresAtUtc,
-            creatorId,
-            nowUtc);
-        dbContext.Invitations.Add(invitation);
-        var notificationPayload = JsonSerializer.Serialize(new InvitationNotificationPayload(capability.Value));
-        dbContext.IdentityNotifications.Add(new IdentityNotification(
-            Guid.NewGuid(),
-            null,
-            tenantId,
-            "InvitationCreated",
-            normalizedEmail,
-            payloadProtector.ProtectionScheme,
-            payloadProtector.Protect(notificationPayload),
-            nowUtc));
-        securityAudit.Add(
-            tenantId,
-            creatorId,
-            "identity.invitation.created",
-            "invitation",
-            invitation.Id,
-            "success",
-            null,
-            new { intendedRole = request.Role.ToString() });
-
-        try
+            ParseCurrentUserId(),
+            request,
+            cancellationToken);
+        return result.Outcome switch
         {
-            await dbContext.SaveChangesAsync(cancellationToken);
-        }
-        catch (DbUpdateException exception) when (
-            exception.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
-        {
-            return ConflictProblem("pending_invitation_exists", "A pending invitation already exists for this email.");
-        }
-
-        return Created(
-            $"/api/v1/tenants/{tenantId}/invitations/{invitation.Id}",
-            new InvitationCreatedResponse(
-                invitation.Id,
-                request.Email.Trim(),
-                request.Role,
-                expiresAtUtc,
-                capability.Value));
+            InvitationCreateOutcome.Created => Created(
+                $"/api/v1/tenants/{tenantId}/invitations/{result.Response!.Id}",
+                result.Response),
+            InvitationCreateOutcome.InvalidEmail => InvalidEmail(),
+            InvitationCreateOutcome.PendingInvitationExists => ConflictProblem(
+                "pending_invitation_exists",
+                "A pending invitation already exists for this email."),
+            _ => throw new InvalidOperationException("Unsupported invitation creation outcome.")
+        };
     }
 
     [HttpPost("api/v1/invitations/accept")]
@@ -113,74 +48,18 @@ public sealed class InvitationsController(
         AcceptInvitationRequest request,
         CancellationToken cancellationToken)
     {
-        var token = request.Token;
-        if (!capabilityTokenService.TryReadTenantId(token, out var tenantId))
+        var result = await workflow.AcceptAsync(request, cancellationToken);
+        return result.Outcome switch
         {
-            return InvalidInvitation();
-        }
-
-        tenantContext.SetForCapabilityLookup(tenantId);
-        await using var transaction = await dbContext.BeginTenantTransactionAsync(tenantId, cancellationToken);
-        var tokenDigest = capabilityTokenService.ComputeDigest(token);
-        var invitation = await dbContext.Invitations.SingleOrDefaultAsync(
-            value => value.TokenDigest == tokenDigest,
-            cancellationToken);
-        var nowUtc = timeProvider.GetUtcNow();
-        if (invitation is null || !invitation.CanBeConsumedAt(nowUtc))
-        {
-            return InvalidInvitation();
-        }
-
-        var existingUser = await userManager.FindByEmailAsync(invitation.NormalizedEmail);
-        if (existingUser is not null)
-        {
-            return ConflictProblem(
+            InvitationAcceptOutcome.Accepted => NoContent(),
+            InvitationAcceptOutcome.Invalid => InvalidInvitation(),
+            InvitationAcceptOutcome.AccountExists => ConflictProblem(
                 "account_exists_sign_in_required",
-                "An account already exists for this invitation. Sign in to continue.");
-        }
-
-        var user = new ApplicationUser
-        {
-            Id = Guid.NewGuid(),
-            UserName = invitation.NormalizedEmail,
-            Email = invitation.NormalizedEmail,
-            EmailConfirmed = true,
-            DisplayName = request.DisplayName.Trim(),
-            AccountState = AccountState.Active,
-            HomeTenantId = tenantId,
-            SecurityStamp = Guid.NewGuid().ToString("N"),
-            ConcurrencyStamp = Guid.NewGuid().ToString("N"),
-            CreatedAtUtc = nowUtc,
-            UpdatedAtUtc = nowUtc,
-            LastPasswordChangedAtUtc = nowUtc,
-            LockoutEnabled = true
+                "An account already exists for this invitation. Sign in to continue."),
+            InvitationAcceptOutcome.IdentityValidationFailed =>
+                IdentityValidationProblem(result.IdentityErrors ?? []),
+            _ => throw new InvalidOperationException("Unsupported invitation acceptance outcome.")
         };
-        var creationResult = await userManager.CreateAsync(user, request.Password);
-        if (!creationResult.Succeeded)
-        {
-            return IdentityValidationProblem(creationResult.Errors);
-        }
-
-        invitation.Consume(user.Id, invitation.NormalizedEmail, nowUtc);
-        dbContext.TenantMemberships.Add(new TenantMembership(
-            Guid.NewGuid(),
-            tenantId,
-            user.Id,
-            invitation.IntendedRole,
-            invitation.CreatedByUserId,
-            nowUtc));
-        securityAudit.Add(
-            tenantId,
-            user.Id,
-            "identity.invitation.accepted",
-            "invitation",
-            invitation.Id,
-            "success",
-            null,
-            new { role = invitation.IntendedRole.ToString() });
-        await dbContext.SaveChangesAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
-        return NoContent();
     }
 
     private Guid ParseCurrentUserId()
@@ -190,6 +69,15 @@ public sealed class InvitationsController(
             ? userId
             : throw new InvalidOperationException("Authenticated principal has no valid user identifier.");
     }
+
+    private static BadRequestObjectResult InvalidEmail() => new(new ValidationProblemDetails(
+        new Dictionary<string, string[]> { ["email"] = ["A valid email address is required."] })
+    {
+        Type = "https://docs.example.invalid/problems/validation",
+        Title = "The request could not be accepted.",
+        Status = StatusCodes.Status400BadRequest,
+        Extensions = { ["code"] = "validation_failed" }
+    });
 
     private static BadRequestObjectResult InvalidInvitation() => new(new ProblemDetails
     {

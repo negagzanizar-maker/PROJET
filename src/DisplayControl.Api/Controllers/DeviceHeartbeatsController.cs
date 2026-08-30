@@ -1,28 +1,16 @@
 using System.ComponentModel.DataAnnotations;
 using System.Security.Claims;
-using System.Security.Cryptography;
-using System.Text.Json;
-using DisplayControl.Api.Scheduling;
+using DisplayControl.Api.Devices;
 using DisplayControl.Api.Security;
 using DisplayControl.Application.Security;
-using DisplayControl.Domain.Devices;
-using DisplayControl.Domain.Licensing;
-using DisplayControl.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using Npgsql;
 
 namespace DisplayControl.Api.Controllers;
 
 [ApiController]
 [Route("device/v1/heartbeats")]
-public sealed class DeviceHeartbeatsController(
-    DisplayControlDbContext dbContext,
-    ILicenseLeaseSigner leaseSigner,
-    DesiredStateResolver desiredStateResolver,
-    DeviceProtocolOptions protocolOptions,
-    TimeProvider timeProvider) : ControllerBase
+public sealed class DeviceHeartbeatsController(DeviceHeartbeatWorkflow workflow) : ControllerBase
 {
     [HttpPost]
     [Authorize(Policy = AuthorizationPolicies.DeviceAuthenticated)]
@@ -32,195 +20,21 @@ public sealed class DeviceHeartbeatsController(
         DeviceHeartbeatRequest request,
         CancellationToken cancellationToken)
     {
-        if (request.BootId == Guid.Empty ||
-            !DeviceInventoryNormalizer.TryNormalize(request.NetworkInterfaces, out var normalizedInterfaces) ||
-            request.ReportedSentAtUtc is { Offset: var reportedOffset } && reportedOffset != TimeSpan.Zero)
-        {
-            return InvalidHeartbeat();
-        }
-
-        var tenantId = RequiredClaimGuid(DeviceClaimTypes.TenantId);
-        var deviceId = RequiredClaimGuid(DeviceClaimTypes.DeviceId);
-        var certificateId = RequiredClaimGuid(DeviceClaimTypes.CertificateId);
-        var nowUtc = timeProvider.GetUtcNow();
-        var requestSha256 = SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(request));
-        var idempotencyLockKey = $"heartbeat:{deviceId:N}:{request.BootId:N}";
-        await dbContext.Database.ExecuteSqlInterpolatedAsync(
-            $"SELECT pg_advisory_xact_lock(hashtextextended({idempotencyLockKey}, 0))",
-            cancellationToken);
-        var priorHeartbeat = await dbContext.DeviceHeartbeats.AsNoTracking().SingleOrDefaultAsync(
-            value => value.DeviceId == deviceId && value.BootId == request.BootId && value.Sequence == request.Sequence,
-            cancellationToken);
-        if (priorHeartbeat is not null)
-        {
-            if (!CryptographicOperations.FixedTimeEquals(priorHeartbeat.RequestSha256, requestSha256) ||
-                string.IsNullOrWhiteSpace(priorHeartbeat.ResponseJson))
-            {
-                return HeartbeatReplay();
-            }
-
-            var priorResponse = JsonSerializer.Deserialize<DeviceHeartbeatResponse>(priorHeartbeat.ResponseJson)
-                ?? throw new InvalidOperationException("Stored heartbeat response is invalid.");
-            return Ok(priorResponse);
-        }
-
-        var latestSequence = await dbContext.DeviceHeartbeats
-            .Where(value => value.DeviceId == deviceId && value.BootId == request.BootId)
-            .MaxAsync(value => (long?)value.Sequence, cancellationToken) ?? 0;
-        if (request.Sequence <= latestSequence)
-        {
-            return Conflict(new ProblemDetails
-            {
-                Type = "https://docs.example.invalid/problems/heartbeat-replay",
-                Title = "The heartbeat sequence was already observed.",
-                Status = StatusCodes.Status409Conflict,
-                Extensions = { ["code"] = "heartbeat_replay" }
-            });
-        }
-
-        var device = await dbContext.Devices.SingleAsync(value => value.Id == deviceId, cancellationToken);
-        try
-        {
-            device.RecordHeartbeat(
-                request.Hostname,
-                request.OsDescription,
-                request.Architecture,
-                request.AgentVersion,
-                request.PlayerVersion,
-                request.DiskCapacityBytes,
-                request.AppliedDesiredStateVersion,
-                request.PlayerStateCode,
-                nowUtc);
-        }
-        catch (ArgumentException)
-        {
-            return InvalidHeartbeat();
-        }
-
-        var inventoryJson = JsonSerializer.Serialize(new
-        {
-            request.Hostname,
-            request.OsDescription,
-            request.Architecture,
-            request.AgentVersion,
-            request.PlayerVersion,
-            request.DiskCapacityBytes,
-            networkInterfaces = normalizedInterfaces
-        });
-        var heartbeatRecord = new DeviceHeartbeat(
-            Guid.NewGuid(),
-            tenantId,
-            deviceId,
-            request.BootId,
-            request.Sequence,
-            requestSha256,
-            request.ReportedSentAtUtc,
-            nowUtc,
+        var result = await workflow.ProcessAsync(
+            RequiredClaimGuid(DeviceClaimTypes.TenantId),
+            RequiredClaimGuid(DeviceClaimTypes.DeviceId),
+            RequiredClaimGuid(DeviceClaimTypes.CertificateId),
             HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
-            inventoryJson,
-            request.AppliedDesiredStateVersion,
-            request.PlayerStateCode,
-            request.FreeDiskBytes,
-            request.LastErrorCode,
-            HttpContext.TraceIdentifierGuid());
-        dbContext.DeviceHeartbeats.Add(heartbeatRecord);
-
-        var existingInterfaces = await dbContext.DeviceNetworkInterfaces
-            .Where(value => value.DeviceId == deviceId)
-            .ToListAsync(cancellationToken);
-        dbContext.DeviceNetworkInterfaces.RemoveRange(existingInterfaces);
-        foreach (var network in normalizedInterfaces)
-        {
-            dbContext.DeviceNetworkInterfaces.Add(new DeviceNetworkInterface(
-                Guid.NewGuid(),
-                tenantId,
-                deviceId,
-                network.InterfaceName,
-                network.MacAddress,
-                JsonSerializer.Serialize(network.LocalAddresses),
-                nowUtc));
-        }
-
-        var license = await dbContext.Licenses
-            .Where(value => value.DeviceId == deviceId &&
-                value.ControlState == LicenseControlState.Enabled &&
-                value.ValidFromUtc <= nowUtc &&
-                value.ExpiresAtUtc > nowUtc)
-            .OrderBy(value => value.ExpiresAtUtc)
-            .FirstOrDefaultAsync(cancellationToken);
-        if (license is null)
-        {
-            var deniedResponse = new DeviceHeartbeatResponse(
-                nowUtc,
-                30,
-                "notLicensed",
-                null,
-                null,
-                new DesiredStateSummaryResponse("notLicensed", null, null));
-            heartbeatRecord.RecordResponse(JsonSerializer.Serialize(deniedResponse));
-            if (!await TrySaveAsync(cancellationToken))
-            {
-                return HeartbeatReplay();
-            }
-
-            return Ok(deniedResponse);
-        }
-
-        var desiredState = await desiredStateResolver.ResolveAsync(deviceId, nowUtc, cancellationToken);
-        var certificate = await dbContext.DeviceCertificates.AsNoTracking().SingleAsync(
-            value => value.Id == certificateId,
+            HttpContext.TraceIdentifierGuid(),
+            request,
             cancellationToken);
-        var authorizationBoundaryUtc = desiredState?.EndsAtUtc is DateTimeOffset scheduleEndUtc &&
-            scheduleEndUtc < certificate.NotAfterUtc
-                ? scheduleEndUtc
-                : certificate.NotAfterUtc;
-        var signedLease = leaseSigner.Issue(
-            tenantId,
-            deviceId,
-            certificateId,
-            license,
-            nowUtc,
-            protocolOptions.OfflineAllowance,
-            desiredState?.Id,
-            desiredState?.Version,
-            desiredState?.ManifestSha256,
-            authorizationBoundaryUtc);
-        license.RecordLeaseIssued(signedLease.ExpiresAtUtc, nowUtc);
-        var licensedResponse = new DeviceHeartbeatResponse(
-            nowUtc,
-            30,
-            "licensed",
-            new LicenseLeaseResponse(
-                signedLease.Token,
-                signedLease.KeyId,
-                signedLease.ExpiresAtUtc,
-                leaseSigner.VerificationKey.Algorithm,
-                leaseSigner.VerificationKey.SubjectPublicKeyInfoPem),
-            license.ExpiresAtUtc,
-            desiredState is null
-                ? new DesiredStateSummaryResponse("licensedNoContent", null, null)
-                : new DesiredStateSummaryResponse("available", desiredState.Id, desiredState.Version));
-        heartbeatRecord.RecordResponse(JsonSerializer.Serialize(licensedResponse));
-        if (!await TrySaveAsync(cancellationToken))
+        return result.Outcome switch
         {
-            return HeartbeatReplay();
-        }
-
-        return Ok(licensedResponse);
-    }
-
-    private async Task<bool> TrySaveAsync(CancellationToken cancellationToken)
-    {
-        try
-        {
-            await dbContext.SaveChangesAsync(cancellationToken);
-            return true;
-        }
-        catch (DbUpdateException exception) when (
-            exception.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
-        {
-            return false;
-        }
+            DeviceHeartbeatOutcome.Success => Ok(result.Response),
+            DeviceHeartbeatOutcome.Invalid => InvalidHeartbeat(),
+            DeviceHeartbeatOutcome.Replay => HeartbeatReplay(),
+            _ => throw new InvalidOperationException("Unsupported heartbeat workflow outcome.")
+        };
     }
 
     private Guid RequiredClaimGuid(string claimType) =>

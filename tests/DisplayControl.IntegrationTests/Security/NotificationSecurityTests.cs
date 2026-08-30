@@ -3,18 +3,74 @@ using System.Text;
 using System.Text.Json;
 
 using DisplayControl.Api.Notifications;
+using DisplayControl.Api.Operations;
 using DisplayControl.Api.Security;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Configuration;
 
 namespace DisplayControl.IntegrationTests.Security;
 
 public sealed class NotificationSecurityTests
 {
     [Fact]
+    public void NotificationAttemptPolicyStopsAtTheConfiguredMaximum()
+    {
+        var nowUtc = new DateTimeOffset(2026, 8, 30, 12, 0, 0, TimeSpan.Zero);
+
+        var retry = NotificationDeliveryAttemptPolicy.Evaluate(6, succeeded: false, 8, nowUtc);
+        var terminal = NotificationDeliveryAttemptPolicy.Evaluate(7, succeeded: false, 8, nowUtc);
+
+        Assert.False(retry.IsTerminalFailure);
+        Assert.Equal(7, retry.AttemptCount);
+        Assert.Equal(nowUtc.AddHours(1), retry.NextAttemptAtUtc);
+        Assert.True(terminal.IsTerminalFailure);
+        Assert.Equal(8, terminal.AttemptCount);
+    }
+
+    [Fact]
+    public void RetentionRequiresTheDedicatedMaintenanceLoginAndLeavesAuditHistoryByDefault()
+    {
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["ConnectionStrings:MaintenanceDatabase"] =
+                "Host=localhost;Database=test;Username=display_control_maintenance;Password=test"
+        }).Build();
+
+        var options = OperationalDataRetentionOptions.FromConfiguration(configuration);
+
+        Assert.Equal(TimeSpan.FromDays(30), options.HeartbeatRetention);
+        Assert.Null(options.AuditRetention);
+
+        var wrongRole = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["ConnectionStrings:MaintenanceDatabase"] =
+                "Host=localhost;Database=test;Username=display_control_runtime;Password=test"
+        }).Build();
+        Assert.Throws<InvalidOperationException>(() =>
+            OperationalDataRetentionOptions.FromConfiguration(wrongRole));
+    }
+
+    [Fact]
+    public void NotificationDeliveryDefaultsToEightAttemptsAndRejectsUnsafeBounds()
+    {
+        var defaults = NotificationDeliveryOptions.FromConfiguration(CreateNotificationConfiguration());
+        Assert.Equal(8, defaults.MaximumAttempts);
+
+        var invalid = CreateNotificationConfiguration(new Dictionary<string, string?>
+        {
+            ["Notifications:MaximumAttempts"] = "0"
+        });
+        Assert.Throws<InvalidOperationException>(() => NotificationDeliveryOptions.FromConfiguration(invalid));
+    }
+
+    [Fact]
     public void AuthenticationLimiterCombinesAttemptsByAccountKey()
     {
         using var cache = new MemoryCache(new MemoryCacheOptions { SizeLimit = 100 });
-        var limiter = new AuthenticationAccountRateLimiter(cache);
+        var limiter = new AuthenticationAccountRateLimiter(
+            cache,
+            TimeProvider.System,
+            AuthenticationAccountRateLimitOptions.Default);
 
         for (var attempt = 0; attempt < 10; attempt++)
         {
@@ -23,6 +79,24 @@ public sealed class NotificationSecurityTests
 
         Assert.False(limiter.TryAcquire("email:USER@EXAMPLE.TEST"));
         Assert.True(limiter.TryAcquire("email:OTHER@EXAMPLE.TEST"));
+    }
+
+    [Fact]
+    public void AuthenticationLimiterAllowsTheAccountAgainAtTheWindowBoundary()
+    {
+        using var cache = new MemoryCache(new MemoryCacheOptions { SizeLimit = 100 });
+        var timeProvider = new ManualTimestampProvider();
+        var limiter = new AuthenticationAccountRateLimiter(
+            cache,
+            timeProvider,
+            new AuthenticationAccountRateLimitOptions(2, TimeSpan.FromMinutes(5)));
+
+        Assert.True(limiter.TryAcquire("account"));
+        Assert.True(limiter.TryAcquire("account"));
+        Assert.False(limiter.TryAcquire("account"));
+
+        timeProvider.Advance(TimeSpan.FromMinutes(5));
+        Assert.True(limiter.TryAcquire("account"));
     }
 
     [Fact]
@@ -76,5 +150,38 @@ public sealed class NotificationSecurityTests
         Assert.True(start >= 0);
         var end = text.IndexOfAny([' ', '\r', '\n'], start);
         return new Uri(end < 0 ? text[start..] : text[start..end]);
+    }
+
+    private static IConfiguration CreateNotificationConfiguration(
+        IReadOnlyDictionary<string, string?>? overrides = null)
+    {
+        var settings = new Dictionary<string, string?>
+        {
+            ["ConnectionStrings:NotificationDatabase"] = "Host=localhost;Database=test;Username=test;Password=test",
+            ["Notifications:PublicBaseUrl"] = "https://display.example.test",
+            ["Notifications:Smtp:Host"] = "smtp.example.test",
+            ["Notifications:Smtp:FromAddress"] = "display@example.test"
+        };
+        if (overrides is not null)
+        {
+            foreach (var setting in overrides)
+            {
+                settings[setting.Key] = setting.Value;
+            }
+        }
+
+        return new ConfigurationBuilder().AddInMemoryCollection(settings).Build();
+    }
+
+    private sealed class ManualTimestampProvider : TimeProvider
+    {
+        private long _timestamp;
+
+        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+
+        public override long GetTimestamp() => Interlocked.Read(ref _timestamp);
+
+        public void Advance(TimeSpan duration) =>
+            Interlocked.Add(ref _timestamp, duration.Ticks);
     }
 }

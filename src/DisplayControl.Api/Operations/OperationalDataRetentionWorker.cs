@@ -1,0 +1,129 @@
+using System.Data;
+using Npgsql;
+
+namespace DisplayControl.Api.Operations;
+
+public sealed record OperationalDataRetentionOptions(
+    string DatabaseConnectionString,
+    TimeSpan HeartbeatRetention,
+    TimeSpan? AuditRetention,
+    TimeSpan Interval,
+    int BatchSize)
+{
+    public static OperationalDataRetentionOptions FromConfiguration(IConfiguration configuration)
+    {
+        var connectionString = configuration.GetConnectionString("MaintenanceDatabase");
+        var heartbeatDays = configuration.GetValue<int?>("Operations:Retention:HeartbeatDays") ?? 30;
+        var auditDays = configuration.GetValue<int?>("Operations:Retention:AuditDays");
+        var intervalMinutes = configuration.GetValue<int?>("Operations:Retention:IntervalMinutes") ?? 15;
+        var batchSize = configuration.GetValue<int?>("Operations:Retention:BatchSize") ?? 1_000;
+        if (string.IsNullOrWhiteSpace(connectionString) ||
+            heartbeatDays is < 1 or > 3_650 ||
+            auditDays is < 30 or > 3_650 ||
+            intervalMinutes is < 5 or > 1_440 ||
+            batchSize is < 100 or > 10_000)
+        {
+            throw new InvalidOperationException(
+                "Enabled retention requires a maintenance connection and valid retention, interval, and batch limits.");
+        }
+
+        var connectionBuilder = new NpgsqlConnectionStringBuilder(connectionString);
+        if (!string.Equals(connectionBuilder.Username, "display_control_maintenance", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "ConnectionStrings:MaintenanceDatabase must use the dedicated display_control_maintenance login.");
+        }
+
+        return new OperationalDataRetentionOptions(
+            connectionString,
+            TimeSpan.FromDays(heartbeatDays),
+            auditDays is null ? null : TimeSpan.FromDays(auditDays.Value),
+            TimeSpan.FromMinutes(intervalMinutes),
+            batchSize);
+    }
+}
+
+public sealed class OperationalDataRetentionWorker(
+    OperationalDataRetentionOptions options,
+    TimeProvider timeProvider,
+    ILogger<OperationalDataRetentionWorker> logger) : BackgroundService
+{
+    private static readonly Action<ILogger, int, int, Exception?> LogCompleted = LoggerMessage.Define<int, int>(
+        LogLevel.Information,
+        new EventId(2200, "OperationalDataRetentionCompleted"),
+        "Operational retention removed {HeartbeatCount} heartbeat rows and {AuditCount} audit rows.");
+    private static readonly Action<ILogger, Exception?> LogFailure = LoggerMessage.Define(
+        LogLevel.Error,
+        new EventId(2201, "OperationalDataRetentionFailed"),
+        "Operational retention failed safely and will retry later.");
+
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            try
+            {
+                var nowUtc = timeProvider.GetUtcNow();
+                var heartbeats = await DeleteExpiredBatchAsync(
+                    "device_heartbeats",
+                    "received_at_utc",
+                    nowUtc.Subtract(options.HeartbeatRetention),
+                    stoppingToken);
+                var audits = options.AuditRetention is { } auditRetention
+                    ? await DeleteExpiredBatchAsync(
+                        "audit_events",
+                        "occurred_at_utc",
+                        nowUtc.Subtract(auditRetention),
+                        stoppingToken)
+                    : 0;
+                LogCompleted(logger, heartbeats, audits, null);
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                break;
+            }
+            catch (Exception exception)
+            {
+                LogFailure(logger, exception);
+            }
+
+            await Task.Delay(options.Interval, timeProvider, stoppingToken);
+        }
+    }
+
+    private async Task<int> DeleteExpiredBatchAsync(
+        string table,
+        string timestampColumn,
+        DateTimeOffset cutoffUtc,
+        CancellationToken cancellationToken)
+    {
+        await using var connection = new NpgsqlConnection(options.DatabaseConnectionString);
+        await connection.OpenAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken);
+        await using (var contextCommand = new NpgsqlCommand(
+            "SELECT set_config('app.data_retention', 'true', true)",
+            connection,
+            transaction))
+        {
+            await contextCommand.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        var sql =
+            $"""
+             DELETE FROM app.{table}
+             WHERE id IN (
+                 SELECT id
+                 FROM app.{table}
+                 WHERE {timestampColumn} < @cutoff
+                 ORDER BY {timestampColumn}, id
+                 LIMIT @batch_size
+             )
+             """;
+        await using var command = new NpgsqlCommand(sql, connection, transaction);
+        command.Parameters.AddWithValue("cutoff", cutoffUtc);
+        command.Parameters.AddWithValue("batch_size", options.BatchSize);
+        var deleted = await command.ExecuteNonQueryAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return deleted;
+    }
+}

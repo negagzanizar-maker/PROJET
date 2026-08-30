@@ -58,7 +58,10 @@ Get-ChildItem -LiteralPath (Join-Path $repositoryRoot 'deploy/pi') -File |
     Copy-Item -Destination $deployCopy -Force
 if (-not [string]::IsNullOrWhiteSpace($ServerCaCertificatePath)) {
     $resolvedCa = (Resolve-Path -LiteralPath $ServerCaCertificatePath).Path
-    Copy-Item -LiteralPath $resolvedCa -Destination (Join-Path $artifactsRoot 'field-test-server-ca.crt') -Force
+    $destinationCa = [System.IO.Path]::GetFullPath((Join-Path $artifactsRoot 'field-test-server-ca.crt'))
+    if (-not [System.StringComparer]::OrdinalIgnoreCase.Equals($resolvedCa, $destinationCa)) {
+        Copy-Item -LiteralPath $resolvedCa -Destination $destinationCa -Force
+    }
 }
 
 $digest = (Get-FileHash -LiteralPath $artifactPath -Algorithm SHA256).Hash.ToLowerInvariant()

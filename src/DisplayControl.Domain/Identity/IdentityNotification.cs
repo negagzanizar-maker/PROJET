@@ -74,6 +74,8 @@ public sealed class IdentityNotification
 
     public DateTimeOffset? ProcessedAtUtc { get; private set; }
 
+    public DateTimeOffset? FailedAtUtc { get; private set; }
+
     public int AttemptCount { get; private set; }
 
     public string? LastSafeErrorCode { get; private set; }

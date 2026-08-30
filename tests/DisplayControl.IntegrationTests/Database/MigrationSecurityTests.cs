@@ -3,6 +3,8 @@ using DisplayControl.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
+using Npgsql;
+using Testcontainers.PostgreSql;
 
 namespace DisplayControl.IntegrationTests.Database;
 
@@ -75,6 +77,14 @@ public sealed class MigrationSecurityTests
             "CREATE POLICY identity_notifications_delivery_update ON app.identity_notifications",
             script,
             StringComparison.Ordinal);
+        Assert.Contains(
+            "CREATE POLICY device_heartbeats_retention_delete ON app.device_heartbeats",
+            script,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "current_user = 'display_control_maintenance'",
+            script,
+            StringComparison.Ordinal);
 
         foreach (var table in TenantTables)
         {
@@ -87,6 +97,82 @@ public sealed class MigrationSecurityTests
             "ALTER TABLE app.system_key_metadata ENABLE ROW LEVEL SECURITY;",
             script,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task HeartbeatMigrationBackfillsValidLegacyIdempotencyValues()
+    {
+        await using var postgres = new PostgreSqlBuilder("postgres:18.4-alpine3.24")
+            .WithDatabase("display_control_migration_tests")
+            .WithUsername("postgres")
+            .WithPassword("ephemeral-migration-test-V7m2Q9x4")
+            .Build();
+        await postgres.StartAsync();
+
+        var options = new DbContextOptionsBuilder<DisplayControlDbContext>()
+            .UseNpgsql(postgres.GetConnectionString())
+            .Options;
+        await using (var context = new DisplayControlDbContext(options, NullTenant.Instance))
+        {
+            var migrator = context.GetService<IMigrator>();
+            await migrator.MigrateAsync("20260815204800_AllowUserlessInvitationNotifications");
+        }
+
+        var tenantId = Guid.NewGuid();
+        var deviceId = Guid.NewGuid();
+        var heartbeatId = Guid.NewGuid();
+        await using (var connection = new NpgsqlConnection(postgres.GetConnectionString()))
+        {
+            await connection.OpenAsync();
+            const string seedSql =
+                """
+                INSERT INTO app.tenants
+                    (id, name, slug, time_zone, state, created_at_utc, updated_at_utc, concurrency_token)
+                VALUES
+                    (@tenantId, 'Migration tenant', 'migration-tenant', 'UTC', 'Active', now(), now(), gen_random_uuid());
+
+                INSERT INTO app.devices
+                    (id, tenant_id, display_name, state, created_at_utc, updated_at_utc, concurrency_token)
+                VALUES
+                    (@deviceId, @tenantId, 'Legacy device', 'Active', now(), now(), gen_random_uuid());
+
+                INSERT INTO app.device_heartbeats
+                    (id, tenant_id, device_id, sequence, reported_sent_at_utc, received_at_utc,
+                     server_observed_ip, inventory_json, applied_desired_state_version,
+                     player_state_code, free_disk_bytes, last_error_code, correlation_id)
+                VALUES
+                    (@heartbeatId, @tenantId, @deviceId, 7, now(), now(),
+                     '127.0.0.1', '{}'::jsonb, NULL, 'notLicensed', 1024, NULL, gen_random_uuid());
+                """;
+            await using var seed = new NpgsqlCommand(seedSql, connection);
+            seed.Parameters.AddWithValue("tenantId", tenantId);
+            seed.Parameters.AddWithValue("deviceId", deviceId);
+            seed.Parameters.AddWithValue("heartbeatId", heartbeatId);
+            await seed.ExecuteNonQueryAsync();
+        }
+
+        await using (var context = new DisplayControlDbContext(options, NullTenant.Instance))
+        {
+            await context.Database.MigrateAsync();
+        }
+
+        await using (var connection = new NpgsqlConnection(postgres.GetConnectionString()))
+        {
+            await connection.OpenAsync();
+            const string verifySql =
+                """
+                SELECT boot_id, octet_length(request_sha256), response_json
+                FROM app.device_heartbeats
+                WHERE id = @heartbeatId;
+                """;
+            await using var verify = new NpgsqlCommand(verifySql, connection);
+            verify.Parameters.AddWithValue("heartbeatId", heartbeatId);
+            await using var reader = await verify.ExecuteReaderAsync();
+            Assert.True(await reader.ReadAsync());
+            Assert.Equal(heartbeatId, reader.GetGuid(0));
+            Assert.Equal(32, reader.GetInt32(1));
+            Assert.True(await reader.IsDBNullAsync(2));
+        }
     }
 
     private sealed class NullTenant : ICurrentTenant

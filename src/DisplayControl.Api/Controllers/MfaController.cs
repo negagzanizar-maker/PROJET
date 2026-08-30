@@ -25,6 +25,7 @@ public sealed class MfaController(
     IMfaSecretProtector mfaSecretProtector,
     ISecureTokenService secureTokenService,
     UserSessionService userSessionService,
+    TenantSecurityAuditService securityAudit,
     TimeProvider timeProvider) : ControllerBase
 {
     [HttpPost("totp/enroll")]
@@ -57,6 +58,7 @@ public sealed class MfaController(
                 protectedSecret,
                 mfaSecretProtector.ProtectionScheme,
                 nowUtc));
+            AddTenantAudit(user, "identity.mfa.enrollment_started", "success");
             await dbContext.SaveChangesAsync(cancellationToken);
 
             return Ok(new TotpEnrollmentResponse(
@@ -91,6 +93,7 @@ public sealed class MfaController(
         if (!verification.IsValid || verification.TimeStep is not long timeStep)
         {
             await userManager.AccessFailedAsync(user);
+            await AddMfaFailureAuditAsync(user, "identity.mfa.enrollment_confirmed", cancellationToken);
             return MfaFailed();
         }
 
@@ -101,7 +104,11 @@ public sealed class MfaController(
 
         var rawRecoveryCodes = CreateRecoveryCodes(user.Id, nowUtc);
 
-        var completion = await CompleteMfaAsync(user, nowUtc, cancellationToken);
+        var completion = await CompleteMfaAsync(
+            user,
+            nowUtc,
+            cancellationToken,
+            auditAction: "identity.mfa.enrollment_confirmed");
         await userManager.ResetAccessFailedCountAsync(user);
         return Ok(new MfaCompletionResponse(completion.Status, rawRecoveryCodes));
     }
@@ -128,6 +135,7 @@ public sealed class MfaController(
         if (!verification.IsValid || verification.TimeStep is not long timeStep)
         {
             await userManager.AccessFailedAsync(user);
+            await AddMfaFailureAuditAsync(user, "identity.mfa.verified", cancellationToken);
             return MfaFailed();
         }
 
@@ -135,7 +143,11 @@ public sealed class MfaController(
         try
         {
             secretRecord.AcceptTimeStep(timeStep, nowUtc);
-            var completion = await CompleteMfaAsync(user, nowUtc, cancellationToken);
+            var completion = await CompleteMfaAsync(
+                user,
+                nowUtc,
+                cancellationToken,
+                auditAction: "identity.mfa.verified");
             await userManager.ResetAccessFailedCountAsync(user);
             return Ok(completion);
         }
@@ -167,6 +179,7 @@ public sealed class MfaController(
         if (!verification.IsValid || verification.TimeStep is not long timeStep)
         {
             await userManager.AccessFailedAsync(user);
+            await AddMfaFailureAuditAsync(user, "identity.mfa.step_up", cancellationToken);
             return MfaFailed();
         }
 
@@ -178,7 +191,8 @@ public sealed class MfaController(
                 user,
                 nowUtc,
                 cancellationToken,
-                "recent_mfa_confirmed");
+                "recent_mfa_confirmed",
+                "identity.mfa.step_up");
             await userManager.ResetAccessFailedCountAsync(user);
             return Ok(completion);
         }
@@ -205,6 +219,7 @@ public sealed class MfaController(
         if (recoveryCode is null)
         {
             await userManager.AccessFailedAsync(user);
+            await AddMfaFailureAuditAsync(user, "identity.mfa.recovery_code_used", cancellationToken);
             return MfaFailed();
         }
 
@@ -212,7 +227,11 @@ public sealed class MfaController(
         try
         {
             recoveryCode.MarkUsed(nowUtc);
-            var completion = await CompleteMfaAsync(user, nowUtc, cancellationToken);
+            var completion = await CompleteMfaAsync(
+                user,
+                nowUtc,
+                cancellationToken,
+                auditAction: "identity.mfa.recovery_code_used");
             await userManager.ResetAccessFailedCountAsync(user);
             return Ok(completion);
         }
@@ -237,6 +256,7 @@ public sealed class MfaController(
 
         var nowUtc = timeProvider.GetUtcNow();
         var rawCodes = CreateRecoveryCodes(user.Id, nowUtc);
+        AddTenantAudit(user, "identity.mfa.recovery_codes_regenerated", "success");
         await dbContext.SaveChangesAsync(cancellationToken);
         return Ok(new MfaCompletionResponse("recovery_codes_regenerated", rawCodes));
     }
@@ -275,7 +295,8 @@ public sealed class MfaController(
         ApplicationUser user,
         DateTimeOffset nowUtc,
         CancellationToken cancellationToken,
-        string status = "authenticated")
+        string status = "authenticated",
+        string auditAction = "identity.mfa.verified")
     {
         var rawSessionKey = User.FindFirstValue(SessionClaimTypes.SessionKey)
             ?? throw new InvalidOperationException("Authenticated session has no session key.");
@@ -293,6 +314,8 @@ public sealed class MfaController(
                 cancellationToken);
         }
 
+        AddTenantAudit(user, auditAction, "success");
+
         await dbContext.SaveChangesAsync(cancellationToken);
         var principal = await userSessionService.CreatePrincipalAsync(
             user,
@@ -305,6 +328,30 @@ public sealed class MfaController(
             principal,
             UserSessionService.CreateAuthenticationProperties(session.CreatedAtUtc, session.AbsoluteExpiresAtUtc));
         return new MfaCompletionResponse(status, null);
+    }
+
+    private async Task AddMfaFailureAuditAsync(
+        ApplicationUser user,
+        string action,
+        CancellationToken cancellationToken)
+    {
+        AddTenantAudit(user, action, "failure", "invalid_mfa_proof");
+        if (user.HomeTenantId is not null)
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+    }
+
+    private void AddTenantAudit(
+        ApplicationUser user,
+        string action,
+        string outcome,
+        string? reasonCode = null)
+    {
+        if (user.HomeTenantId is Guid tenantId)
+        {
+            securityAudit.Add(tenantId, user.Id, action, "user", user.Id, outcome, reasonCode);
+        }
     }
 
     private List<string> CreateRecoveryCodes(Guid userId, DateTimeOffset createdAtUtc)

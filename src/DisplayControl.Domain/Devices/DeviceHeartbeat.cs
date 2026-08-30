@@ -12,7 +12,9 @@ public sealed class DeviceHeartbeat : TenantOwnedEntity
         Guid id,
         Guid tenantId,
         Guid deviceId,
+        Guid bootId,
         long sequence,
+        byte[] requestSha256,
         DateTimeOffset? reportedSentAtUtc,
         DateTimeOffset receivedAtUtc,
         string serverObservedIp,
@@ -23,12 +25,18 @@ public sealed class DeviceHeartbeat : TenantOwnedEntity
         string? lastErrorCode,
         Guid correlationId)
     {
-        if (id == Guid.Empty || tenantId == Guid.Empty || deviceId == Guid.Empty || correlationId == Guid.Empty)
+        if (id == Guid.Empty || tenantId == Guid.Empty || deviceId == Guid.Empty || bootId == Guid.Empty ||
+            correlationId == Guid.Empty)
         {
             throw new ArgumentException("Heartbeat identifiers cannot be empty.");
         }
 
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(sequence);
+        if (requestSha256 is not { Length: 32 })
+        {
+            throw new ArgumentException("Heartbeat request SHA-256 must contain exactly 32 bytes.", nameof(requestSha256));
+        }
+
         EnsureUtc(receivedAtUtc, nameof(receivedAtUtc));
         if (reportedSentAtUtc is not null)
         {
@@ -48,7 +56,9 @@ public sealed class DeviceHeartbeat : TenantOwnedEntity
         Id = id;
         TenantId = tenantId;
         DeviceId = deviceId;
+        BootId = bootId;
         Sequence = sequence;
+        RequestSha256 = [.. requestSha256];
         ReportedSentAtUtc = reportedSentAtUtc;
         ReceivedAtUtc = receivedAtUtc;
         ServerObservedIp = Normalize(serverObservedIp, 64, nameof(serverObservedIp));
@@ -67,7 +77,13 @@ public sealed class DeviceHeartbeat : TenantOwnedEntity
 
     public Guid DeviceId { get; private set; }
 
+    public Guid BootId { get; private set; }
+
     public long Sequence { get; private set; }
+
+    public byte[] RequestSha256 { get; private set; } = [];
+
+    public string? ResponseJson { get; private set; }
 
     public DateTimeOffset? ReportedSentAtUtc { get; private set; }
 
@@ -86,6 +102,21 @@ public sealed class DeviceHeartbeat : TenantOwnedEntity
     public string? LastErrorCode { get; private set; }
 
     public Guid CorrelationId { get; private set; }
+
+    public void RecordResponse(string responseJson)
+    {
+        if (ResponseJson is not null)
+        {
+            throw new InvalidOperationException("Heartbeat response has already been recorded.");
+        }
+
+        if (string.IsNullOrWhiteSpace(responseJson) || responseJson.Length > 32_768)
+        {
+            throw new ArgumentException("Heartbeat response JSON is invalid.", nameof(responseJson));
+        }
+
+        ResponseJson = responseJson;
+    }
 
     private static string Normalize(string value, int maximumLength, string parameterName)
     {

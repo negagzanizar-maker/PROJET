@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using System.Text.Json;
 
 using DisplayControl.Application.Security;
 using Microsoft.Extensions.Options;
@@ -13,10 +14,14 @@ public sealed class DeviceControlClient(
     PlayerStateStore playerState,
     ContentCacheStore contentCache,
     IOptions<AgentRuntimeOptions> options,
-    TimeProvider timeProvider)
+    TimeProvider timeProvider,
+    ILogger<DeviceControlClient> logger)
 {
     private readonly AgentRuntimeOptions _options = options.Value;
     private readonly object _clockGate = new();
+    private readonly Guid _bootId = Guid.NewGuid();
+    private long _heartbeatSequence;
+    private HeartbeatRequestContract? _pendingHeartbeat;
     private DateTimeOffset? _lastAuthenticatedServerTimeUtc;
     private long _lastAuthenticatedTimestamp;
 
@@ -63,8 +68,20 @@ public sealed class DeviceControlClient(
         }
         catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException)
         {
+            AgentLog.HeartbeatTransportFailed(logger, SafeExceptionChain(exception));
             ApplyOfflineAuthorization(state);
         }
+    }
+
+    private static string SafeExceptionChain(Exception exception)
+    {
+        var names = new List<string>(4);
+        for (var current = exception; current is not null && names.Count < 4; current = current.InnerException)
+        {
+            names.Add($"{current.GetType().Name}:0x{current.HResult:X8}");
+        }
+
+        return string.Join('>', names);
     }
 
     private async Task<AgentPersistentState> TryRotateCertificateAsync(
@@ -73,8 +90,11 @@ public sealed class DeviceControlClient(
     {
         using var currentPrivateKey = await stateStore.LoadOrCreatePrivateKeyAsync(cancellationToken);
         using var publicCertificate = X509Certificate2.CreateFromPem(state.CertificatePem);
-        using var clientCertificate = publicCertificate.CopyWithPrivateKey(currentPrivateKey);
-        using var handler = new HttpClientHandler { CheckCertificateRevocationList = true };
+        using var clientCertificate = CreateTlsClientCertificate(publicCertificate, currentPrivateKey);
+        using var handler = new HttpClientHandler
+        {
+            CheckCertificateRevocationList = _options.CheckServerCertificateRevocation
+        };
         handler.ClientCertificates.Add(clientCertificate);
         using var client = new HttpClient(handler)
         {
@@ -152,6 +172,29 @@ public sealed class DeviceControlClient(
             cancellationToken);
         if (!response.IsSuccessStatusCode)
         {
+            var errorCode = "unknown";
+            try
+            {
+                await using var problemStream = await response.Content.ReadAsStreamAsync(cancellationToken);
+                using var problem = await JsonDocument.ParseAsync(problemStream, cancellationToken: cancellationToken);
+                if (problem.RootElement.TryGetProperty("code", out var code) && code.ValueKind == JsonValueKind.String)
+                {
+                    errorCode = code.GetString() ?? errorCode;
+                }
+                else if (problem.RootElement.TryGetProperty("errors", out var errors) &&
+                    errors.ValueKind == JsonValueKind.Object)
+                {
+                    errorCode = "validation_" + string.Join(
+                        '_',
+                        errors.EnumerateObject().Select(property => property.Name));
+                }
+            }
+            catch (JsonException)
+            {
+                errorCode = "invalid_problem_response";
+            }
+
+            AgentLog.EnrollmentRejected(logger, (int)response.StatusCode, errorCode);
             return null;
         }
 
@@ -227,10 +270,10 @@ public sealed class DeviceControlClient(
         var inventory = await inventoryCollector.CollectAsync(cancellationToken);
         using var privateKey = await stateStore.LoadOrCreatePrivateKeyAsync(cancellationToken);
         using var publicCertificate = X509Certificate2.CreateFromPem(state.CertificatePem);
-        using var clientCertificate = publicCertificate.CopyWithPrivateKey(privateKey);
+        using var clientCertificate = CreateTlsClientCertificate(publicCertificate, privateKey);
         using var handler = new HttpClientHandler
         {
-            CheckCertificateRevocationList = true
+            CheckCertificateRevocationList = _options.CheckServerCertificateRevocation
         };
         handler.ClientCertificates.Add(clientCertificate);
         using var client = new HttpClient(handler)
@@ -238,27 +281,34 @@ public sealed class DeviceControlClient(
             BaseAddress = _options.ServerBaseAddress,
             Timeout = TimeSpan.FromSeconds(30)
         };
-        var sequence = checked(state.LastHeartbeatSequence + 1);
+        var sequence = _pendingHeartbeat?.Sequence ?? checked(_heartbeatSequence + 1);
+        var heartbeatRequest = _pendingHeartbeat ?? new HeartbeatRequestContract(
+            _bootId,
+            sequence,
+            timeProvider.GetUtcNow(),
+            inventory.Hostname,
+            inventory.OsDescription,
+            inventory.Architecture,
+            inventory.AgentVersion,
+            inventory.PlayerVersion,
+            inventory.DiskCapacityBytes,
+            inventory.FreeDiskBytes,
+            state.AppliedDesiredStateVersion,
+            playerState.Snapshot().Status,
+            playerState.Snapshot().SafeReasonCode,
+            inventory.NetworkInterfaces);
+        _pendingHeartbeat = heartbeatRequest;
+        AgentLog.HeartbeatStarted(logger, sequence);
         using var response = await client.PostAsJsonAsync(
             "/device/v1/heartbeats",
-            new HeartbeatRequestContract(
-                sequence,
-                timeProvider.GetUtcNow(),
-                inventory.Hostname,
-                inventory.OsDescription,
-                inventory.Architecture,
-                inventory.AgentVersion,
-                inventory.PlayerVersion,
-                inventory.DiskCapacityBytes,
-                inventory.FreeDiskBytes,
-                state.AppliedDesiredStateVersion,
-                playerState.Snapshot().Status,
-                playerState.Snapshot().SafeReasonCode,
-                inventory.NetworkInterfaces),
+            heartbeatRequest,
             cancellationToken);
+        AgentLog.HeartbeatCompleted(logger, sequence, (int)response.StatusCode);
         response.EnsureSuccessStatusCode();
         var heartbeat = await response.Content.ReadFromJsonAsync<HeartbeatResponseContract>(cancellationToken)
             ?? throw new InvalidOperationException("The heartbeat response was empty.");
+        _heartbeatSequence = sequence;
+        _pendingHeartbeat = null;
         if (heartbeat.ServerTimeUtc.Offset != TimeSpan.Zero ||
             heartbeat.ServerTimeUtc < state.TrustedServerTimeHighWaterUtc.AddMinutes(-2))
         {
@@ -320,7 +370,10 @@ public sealed class DeviceControlClient(
         {
             var noContentState = authorizedState with { AppliedDesiredStateVersion = null };
             await stateStore.SaveAsync(noContentState, cancellationToken);
-            playerState.SetLicensedNoContent(noContentState.DeviceId);
+            playerState.SetLicensedNoContent(
+                noContentState.DeviceId,
+                leasePayload!.ExpiresAtUtc,
+                heartbeat.ServerTimeUtc);
             return;
         }
 
@@ -333,7 +386,11 @@ public sealed class DeviceControlClient(
         }
 
         var protectedCacheHashes = playerState.ActiveAssetHashesSnapshot();
-        playerState.SetSynchronizing(authorizedState.DeviceId, desiredStateVersion);
+        playerState.SetSynchronizing(
+            authorizedState.DeviceId,
+            desiredStateVersion,
+            leasePayload!.ExpiresAtUtc,
+            heartbeat.ServerTimeUtc);
         try
         {
             var activation = await contentCache.SynchronizeAsync(
@@ -343,19 +400,30 @@ public sealed class DeviceControlClient(
                 manifestSha256,
                 protectedCacheHashes,
                 cancellationToken);
-            playerState.SetReady(authorizedState.DeviceId, activation.Manifest, activation.AssetFiles);
+            if (!TryGetTrustedTime(out var activationTimeUtc) || activationTimeUtc >= leasePayload!.ExpiresAtUtc)
+            {
+                playerState.SetNotLicensed("lease_expired_during_synchronization");
+                return;
+            }
+
+            playerState.SetReady(
+                authorizedState.DeviceId,
+                activation.Manifest,
+                activation.AssetFiles,
+                leasePayload.ExpiresAtUtc,
+                activationTimeUtc);
             await stateStore.SaveAsync(
                 authorizedState with { AppliedDesiredStateVersion = desiredStateVersion },
                 cancellationToken);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            playerState.SetSynchronizing(authorizedState.DeviceId, desiredStateVersion);
+            SetSynchronizingIfAuthorized(authorizedState.DeviceId, desiredStateVersion, leasePayload!.ExpiresAtUtc);
         }
         catch (Exception exception) when (
             exception is HttpRequestException or IOException or CryptographicException)
         {
-            playerState.SetSynchronizing(authorizedState.DeviceId, desiredStateVersion);
+            SetSynchronizingIfAuthorized(authorizedState.DeviceId, desiredStateVersion, leasePayload!.ExpiresAtUtc);
         }
     }
 
@@ -377,26 +445,51 @@ public sealed class DeviceControlClient(
             return;
         }
 
-        ApplyAuthorizedPresentation(state);
+        ApplyAuthorizedPresentation(state, payload!.ExpiresAtUtc, trustedNowUtc);
     }
 
-    private void ApplyAuthorizedPresentation(AgentPersistentState state)
+    private void ApplyAuthorizedPresentation(
+        AgentPersistentState state,
+        DateTimeOffset authorizationExpiresAtUtc,
+        DateTimeOffset trustedNowUtc)
     {
         if (string.Equals(state.DesiredStateStatus, "licensedNoContent", StringComparison.Ordinal))
         {
-            playerState.SetLicensedNoContent(state.DeviceId);
+            playerState.SetLicensedNoContent(state.DeviceId, authorizationExpiresAtUtc, trustedNowUtc);
         }
         else if (state.DesiredStateVersion is long version)
         {
             if (!playerState.IsReady(version) || state.AppliedDesiredStateVersion != version)
             {
-                playerState.SetSynchronizing(state.DeviceId, version);
+                playerState.SetSynchronizing(
+                    state.DeviceId,
+                    version,
+                    authorizationExpiresAtUtc,
+                    trustedNowUtc);
             }
         }
         else
         {
             playerState.SetNotLicensed("desired_state_invalid");
         }
+    }
+
+    private void SetSynchronizingIfAuthorized(
+        Guid deviceId,
+        long desiredStateVersion,
+        DateTimeOffset authorizationExpiresAtUtc)
+    {
+        if (!TryGetTrustedTime(out var trustedNowUtc) || trustedNowUtc >= authorizationExpiresAtUtc)
+        {
+            playerState.SetNotLicensed("lease_expired_during_synchronization");
+            return;
+        }
+
+        playerState.SetSynchronizing(
+            deviceId,
+            desiredStateVersion,
+            authorizationExpiresAtUtc,
+            trustedNowUtc);
     }
 
     private static bool MatchesPinnedKey(
@@ -514,6 +607,27 @@ public sealed class DeviceControlClient(
         }
     }
 
+    private static X509Certificate2 CreateTlsClientCertificate(X509Certificate2 certificate, ECDsa privateKey)
+    {
+        var combined = certificate.CopyWithPrivateKey(privateKey);
+        if (!OperatingSystem.IsWindows())
+        {
+            return combined;
+        }
+
+        try
+        {
+            return X509CertificateLoader.LoadPkcs12(
+                combined.Export(X509ContentType.Pkcs12),
+                password: null,
+                X509KeyStorageFlags.Exportable);
+        }
+        finally
+        {
+            combined.Dispose();
+        }
+    }
+
     private bool TryGetTrustedTime(out DateTimeOffset trustedNowUtc)
     {
         lock (_clockGate)
@@ -555,6 +669,7 @@ internal sealed record EnrollmentResponseContract(
     Uri HeartbeatEndpoint);
 
 internal sealed record HeartbeatRequestContract(
+    Guid BootId,
     long Sequence,
     DateTimeOffset ReportedSentAtUtc,
     string Hostname,

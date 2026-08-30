@@ -1,6 +1,6 @@
 # État d’avancement du projet Display Control
 
-**Date de référence :** 16 août 2026
+**Date de référence :** 30 août 2026
 
 **Statut :** application et kit de test terrain Raspberry Pi fonctionnels et vérifiés sur le poste de développement ; validation physique sur Raspberry Pi encore nécessaire.
 
@@ -28,7 +28,7 @@ Le dépôt contient trois produits principaux :
 | Affichage sur écran | Réalisé localement | Vidéo, image et texte ; états non licencié, aucun contenu, synchronisation et erreur |
 | Notifications e-mail | Code réalisé | Worker SMTP sécurisé présent ; validation avec un vrai SMTP encore nécessaire |
 | Kit de test Raspberry Pi | Réalisé sur poste | Archive autonome Linux ARM64, installateur, HTTPS LAN, prise en charge Wayland/X11 et guide de test pas à pas |
-| Vérification automatisée | Réalisé localement | 84 tests .NET, 7 tests React et 5 tests Playwright/axe réussis, aucun échec |
+| Vérification automatisée | Réalisé localement | 88 tests .NET, 8 tests React et 5 tests Playwright/axe réussis, aucun échec |
 | Validation Raspberry Pi physique | À faire | Essais écran, accélération vidéo, redémarrage, coupure réseau, horloge et endurance |
 | Mise en production | À faire | Infrastructure, secrets, supervision, sauvegarde, restauration et tests de charge |
 | Rapport final français | Préparé, non finalisé | Plan et journal disponibles ; DOCX/PDF final, captures et métadonnées restent à produire |
@@ -115,7 +115,7 @@ Vérifications locales effectuées le 15 août 2026 :
 
 | Commande | Résultat |
 | --- | --- |
-| `dotnet test DisplayControl.slnx --no-restore` | 84/84 tests réussis : 44 domaine, 10 agent, 30 intégration |
+| `dotnet test DisplayControl.slnx --no-restore` | 85/85 tests réussis : 44 domaine, 11 agent, 30 intégration |
 | `npm test` | 7/7 tests réussis : 4 administration, 3 lecteur |
 | `npm run test:e2e` | 5/5 scénarios Chrome réussis ; zéro violation axe WCAG A/AA sur les vues couvertes |
 | Compilation .NET | Réussie sans avertissement lors de la dernière vérification complète |
@@ -128,13 +128,24 @@ Playwright `1.61.1` et `@axe-core/playwright` `4.12.1` sont ajoutés comme dépe
 ### 4.1 Mise à jour du 16 août 2026 — préparation du test terrain
 
 - La compilation Release de la solution complète, y compris l’utilitaire de préparation, réussit avec zéro avertissement et zéro erreur.
-- Les 84 tests .NET réussissent de nouveau avec Docker actif : 44 domaine, 10 agent et 30 intégration, dont PostgreSQL 18 et l’isolation RLS réelle.
+- Les 85 tests .NET réussissent de nouveau avec Docker actif : 44 domaine, 11 agent et 30 intégration, dont PostgreSQL 18 et l’isolation RLS réelle.
+- Un agent Windows utilisé comme Raspberry Pi virtuel a été enrôlé par certificat, a remonté son nom, son numéro de série de développement, ses interfaces IP/MAC, reçu une licence et synchronisé un manifeste texte jusqu’à l’état lecteur `ready`.
 - Les 7 tests React, les deux builds Vite, le lint et le typage TypeScript réussissent.
 - Les 5 scénarios Playwright/axe réussissent dans Chrome.
 - Une publication .NET autonome `linux-arm64` a été produite avec le lecteur React embarqué. L’archive générée est contrôlée par SHA-256 et reste hors Git comme artefact de livraison local.
 - `scripts/New-FieldTestEnvironment.ps1` prépare PostgreSQL, ClamAV, les migrations, les clés de développement et un serveur HTTPS valable sur l’adresse IP du réseau local.
 - L’installateur Pi accepte la CA publique du test LAN et peut attacher Chromium à l’utilisateur graphique Raspberry Pi OS sous Wayland ou X11.
 - Le déroulement complet du lendemain est documenté dans `docs/05-operations/FIELD_TEST_TOMORROW.md`.
+
+### 4.2 Mise à jour du 30 août 2026 — vérification avant démonstration
+
+- La restauration verrouillée et la compilation Release réussissent avec zéro avertissement et zéro erreur.
+- Les 88 tests .NET réussissent avec Docker actif : 44 domaine, 12 agent et 32 intégration, y compris PostgreSQL 18 et l’isolation RLS forcée.
+- Les 8 tests React, le lint, le typage TypeScript et les deux builds Vite réussissent.
+- Les 5 scénarios Playwright/axe réussissent avec Chromium après alignement des données de test sur l’expiration locale du bail.
+- Les analyseurs et le formatage .NET, la dérive EF Core, la documentation, Compose et la syntaxe des scripts réussissent.
+- Les audits npm et NuGet ne signalent aucune vulnérabilité connue.
+- Le paquet Raspberry Pi autonome `0.1.3-field-test` contient 362 entrées, le lecteur embarqué et aucun secret détecté ; son SHA-256 est `6cf4183ed67777bfc24b16f803c2c3f5add746dd40726642906bbc838f6efe38`.
 
 ## 5. Parcours fonctionnel actuellement possible
 

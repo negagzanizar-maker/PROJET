@@ -129,14 +129,14 @@ function App() {
   }
 
   if (!session.authenticated) {
-    const query = new URLSearchParams(window.location.search)
-    const invitationToken = window.location.pathname === '/accept-invitation' ? query.get('token') : null
-    const resetToken = window.location.pathname === '/reset-password' ? query.get('token') : null
-    const resetEmail = window.location.pathname === '/reset-password' ? query.get('email') : null
+    const fragmentUrl = new URL(window.location.hash.startsWith('#/') ? window.location.hash.slice(1) : '/', window.location.origin)
+    const invitationToken = fragmentUrl.pathname === '/accept-invitation' ? fragmentUrl.searchParams.get('token') : null
+    const resetToken = fragmentUrl.pathname === '/reset-password' ? fragmentUrl.searchParams.get('token') : null
+    const resetEmail = fragmentUrl.pathname === '/reset-password' ? fragmentUrl.searchParams.get('email') : null
 
     if (invitationToken) {
       return <InvitationAcceptanceForm busy={busy} error={actionError} onSubmit={(displayName, password) => runAction(async () => {
-        await post(`/api/v1/invitations/${encodeURIComponent(invitationToken)}/accept`, { displayName, password })
+        await post('/api/v1/invitations/accept', { token: invitationToken, displayName, password })
         window.history.replaceState(null, '', '/')
         setAuthNotice('Invitation acceptée. Connectez-vous avec le compte que vous venez de créer.')
       })} />
@@ -267,7 +267,7 @@ function SignInForm({ busy, error, notice, onForgot, onSubmit }: { busy: boolean
     const values = new FormData(event.currentTarget)
     void onSubmit(String(values.get('email') ?? ''), String(values.get('password') ?? ''))
   }
-  return <section className="auth-panel"><form id="sign-in-form" className="auth-card" onSubmit={submit}><p className="eyebrow">Accès privé</p><h2>Se connecter</h2><p>Utilisez l’adresse associée à votre invitation.</p>{notice && <p className="form-notice" role="status">{notice}</p>}<label>Adresse e-mail<input autoComplete="username" disabled={busy} maxLength={320} name="email" required type="email" /></label><label>Mot de passe<input autoComplete="current-password" disabled={busy} maxLength={1024} minLength={12} name="password" required type="password" /></label>{error && <p className="form-error" role="alert">{error}</p>}<button className="primary-button" disabled={busy} type="submit">{busy ? 'Vérification…' : 'Se connecter'}</button><button className="text-button" disabled={busy} onClick={onForgot} type="button">Mot de passe oublié</button></form></section>
+  return <section className="auth-panel"><form id="sign-in-form" className="auth-card" onSubmit={submit}><p className="eyebrow">Accès privé</p><h2>Se connecter</h2><p>Utilisez l’adresse associée à votre invitation.</p>{notice && <p className="form-notice" role="status">{notice}</p>}<label>Adresse e-mail<input autoComplete="username" disabled={busy} maxLength={320} name="email" required type="email" /></label><label>Mot de passe<input autoComplete="current-password" disabled={busy} maxLength={1024} name="password" required type="password" /></label>{error && <p className="form-error" role="alert">{error}</p>}<button className="primary-button" disabled={busy} type="submit">{busy ? 'Vérification…' : 'Se connecter'}</button><button className="text-button" disabled={busy} onClick={onForgot} type="button">Mot de passe oublié</button></form></section>
 }
 
 function ForgotPasswordForm({ busy, error, onCancel, onSubmit }: { busy: boolean; error: string | null; onCancel: () => void; onSubmit: (email: string) => Promise<void> }) {
@@ -285,7 +285,7 @@ function InvitationAcceptanceForm({ busy, error, onSubmit }: { busy: boolean; er
     const values = new FormData(event.currentTarget)
     void onSubmit(String(values.get('displayName') ?? ''), String(values.get('password') ?? ''))
   }
-  return <main className="centered-page"><section className="auth-card wide"><Brand /><p className="eyebrow">Invitation à usage unique</p><h1>Créer votre compte</h1><p>Le lien expire après 24 heures et ne peut être utilisé qu’une fois.</p><form className="mfa-form" onSubmit={submit}><label>Nom affiché<input autoComplete="name" disabled={busy} maxLength={160} name="displayName" required /></label><label>Mot de passe<input autoComplete="new-password" disabled={busy} maxLength={1024} minLength={12} name="password" required type="password" /></label>{error && <p className="form-error" role="alert">{error}</p>}<button className="primary-button" disabled={busy} type="submit">Créer le compte</button></form></section></main>
+  return <main className="centered-page"><section className="auth-card wide"><Brand /><p className="eyebrow">Invitation à usage unique</p><h1>Créer votre compte</h1><p>Le lien expire après 24 heures et ne peut être utilisé qu’une fois.</p><form className="mfa-form" onSubmit={submit}><label>Nom affiché<input autoComplete="name" disabled={busy} maxLength={160} name="displayName" required /></label><label>Mot de passe<input autoComplete="new-password" disabled={busy} maxLength={1024} minLength={15} name="password" required type="password" /></label>{error && <p className="form-error" role="alert">{error}</p>}<button className="primary-button" disabled={busy} type="submit">Créer le compte</button></form></section></main>
 }
 
 function PasswordResetForm({ busy, email, error, onSubmit }: { busy: boolean; email: string; error: string | null; onSubmit: (password: string) => Promise<void> }) {
@@ -294,7 +294,7 @@ function PasswordResetForm({ busy, email, error, onSubmit }: { busy: boolean; em
     const values = new FormData(event.currentTarget)
     void onSubmit(String(values.get('password') ?? ''))
   }
-  return <main className="centered-page"><section className="auth-card wide"><Brand /><p className="eyebrow">Récupération sécurisée</p><h1>Choisir un nouveau mot de passe</h1><p>Compte : {email}</p><form className="mfa-form" onSubmit={submit}><label>Nouveau mot de passe<input autoComplete="new-password" disabled={busy} maxLength={1024} minLength={12} name="password" required type="password" /></label>{error && <p className="form-error" role="alert">{error}</p>}<button className="primary-button" disabled={busy} type="submit">Modifier le mot de passe</button></form></section></main>
+  return <main className="centered-page"><section className="auth-card wide"><Brand /><p className="eyebrow">Récupération sécurisée</p><h1>Choisir un nouveau mot de passe</h1><p>Compte : {email}</p><form className="mfa-form" onSubmit={submit}><label>Nouveau mot de passe<input autoComplete="new-password" disabled={busy} maxLength={1024} minLength={15} name="password" required type="password" /></label>{error && <p className="form-error" role="alert">{error}</p>}<button className="primary-button" disabled={busy} type="submit">Modifier le mot de passe</button></form></section></main>
 }
 
 function MfaCodeForm({ busy, error, label, onSubmit }: { busy: boolean; error: string | null; label: string; onSubmit: (code: string) => Promise<void> }) {

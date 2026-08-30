@@ -24,6 +24,7 @@ public sealed class InvitationsController(
     ScopedTenantContext tenantContext,
     ITenantCapabilityTokenService capabilityTokenService,
     ISensitivePayloadProtector payloadProtector,
+    TenantSecurityAuditService securityAudit,
     TimeProvider timeProvider) : ControllerBase
 {
     [HttpPost("api/v1/tenants/{tenantId:guid}/invitations")]
@@ -73,6 +74,15 @@ public sealed class InvitationsController(
             payloadProtector.ProtectionScheme,
             payloadProtector.Protect(notificationPayload),
             nowUtc));
+        securityAudit.Add(
+            tenantId,
+            creatorId,
+            "identity.invitation.created",
+            "invitation",
+            invitation.Id,
+            "success",
+            null,
+            new { intendedRole = request.Role.ToString() });
 
         try
         {
@@ -94,16 +104,16 @@ public sealed class InvitationsController(
                 capability.Value));
     }
 
-    [HttpPost("api/v1/invitations/{token}/accept")]
+    [HttpPost("api/v1/invitations/accept")]
     [AllowAnonymous]
     [EnableRateLimiting("authentication")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> Accept(
-        string token,
         AcceptInvitationRequest request,
         CancellationToken cancellationToken)
     {
+        var token = request.Token;
         if (!capabilityTokenService.TryReadTenantId(token, out var tenantId))
         {
             return InvalidInvitation();
@@ -159,6 +169,15 @@ public sealed class InvitationsController(
             invitation.IntendedRole,
             invitation.CreatedByUserId,
             nowUtc));
+        securityAudit.Add(
+            tenantId,
+            user.Id,
+            "identity.invitation.accepted",
+            "invitation",
+            invitation.Id,
+            "success",
+            null,
+            new { role = invitation.IntendedRole.ToString() });
         await dbContext.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return NoContent();
@@ -223,8 +242,9 @@ public sealed record CreateInvitationRequest(
     TenantRole Role);
 
 public sealed record AcceptInvitationRequest(
+    [param: Required, StringLength(4096, MinimumLength = 16)] string Token,
     [param: Required, StringLength(160, MinimumLength = 1)] string DisplayName,
-    [param: Required, StringLength(1024, MinimumLength = 12)] string Password);
+    [param: Required, StringLength(1024, MinimumLength = 15)] string Password);
 
 public sealed record InvitationCreatedResponse(
     Guid Id,

@@ -9,16 +9,22 @@ public sealed class PlayerStateStore(TimeProvider timeProvider)
         null,
         null,
         null,
+        null,
+        null,
         DateTimeOffset.MinValue);
     private ActivePlayerManifest? _manifest;
     private Dictionary<Guid, PlayerAssetFile> _assetFiles =
         new Dictionary<Guid, PlayerAssetFile>();
+    private DateTimeOffset? _authorizationExpiresAtUtc;
+    private long? _authorizationStartedTimestamp;
+    private TimeSpan? _authorizationDuration;
 
     public PlayerStateSnapshot Snapshot()
     {
         lock (_gate)
         {
-            return _state;
+            ExpireAuthorizationIfRequired();
+            return _state with { AuthorizationRemainingMilliseconds = AuthorizationRemainingMilliseconds() };
         }
     }
 
@@ -26,6 +32,7 @@ public sealed class PlayerStateStore(TimeProvider timeProvider)
     {
         lock (_gate)
         {
+            ExpireAuthorizationIfRequired();
             return _manifest is null
                 ? null
                 : new PlayerManifestSnapshot(
@@ -45,6 +52,7 @@ public sealed class PlayerStateStore(TimeProvider timeProvider)
     {
         lock (_gate)
         {
+            ExpireAuthorizationIfRequired();
             return _state.Status == "ready" && _manifest?.Version == desiredStateVersion;
         }
     }
@@ -53,6 +61,7 @@ public sealed class PlayerStateStore(TimeProvider timeProvider)
     {
         lock (_gate)
         {
+            ExpireAuthorizationIfRequired();
             return _assetFiles.TryGetValue(contentVersionId, out asset);
         }
     }
@@ -61,6 +70,7 @@ public sealed class PlayerStateStore(TimeProvider timeProvider)
     {
         lock (_gate)
         {
+            ExpireAuthorizationIfRequired();
             return _assetFiles.Values.Select(value => value.Sha256).ToHashSet(StringComparer.Ordinal);
         }
     }
@@ -71,26 +81,38 @@ public sealed class PlayerStateStore(TimeProvider timeProvider)
         {
             _manifest = null;
             _assetFiles = new Dictionary<Guid, PlayerAssetFile>();
+            _authorizationExpiresAtUtc = null;
+            _authorizationStartedTimestamp = null;
+            _authorizationDuration = null;
             Set("notLicensed", "Not licensed", safeReasonCode, null, null);
         }
     }
 
-    public void SetLicensedNoContent(Guid deviceId)
+    public void SetLicensedNoContent(
+        Guid deviceId,
+        DateTimeOffset authorizationExpiresAtUtc,
+        DateTimeOffset trustedNowUtc)
     {
         lock (_gate)
         {
             _manifest = null;
             _assetFiles = new Dictionary<Guid, PlayerAssetFile>();
+            SetAuthorization(authorizationExpiresAtUtc, trustedNowUtc);
             Set("noContent", "No content assigned", null, deviceId, null);
         }
     }
 
-    public void SetSynchronizing(Guid deviceId, long desiredStateVersion)
+    public void SetSynchronizing(
+        Guid deviceId,
+        long desiredStateVersion,
+        DateTimeOffset authorizationExpiresAtUtc,
+        DateTimeOffset trustedNowUtc)
     {
         lock (_gate)
         {
             _manifest = null;
             _assetFiles = new Dictionary<Guid, PlayerAssetFile>();
+            SetAuthorization(authorizationExpiresAtUtc, trustedNowUtc);
             Set("synchronizing", "Synchronizing", null, deviceId, desiredStateVersion);
         }
     }
@@ -98,7 +120,9 @@ public sealed class PlayerStateStore(TimeProvider timeProvider)
     public void SetReady(
         Guid deviceId,
         ActivePlayerManifest manifest,
-        IReadOnlyDictionary<Guid, PlayerAssetFile> assetFiles)
+        IReadOnlyDictionary<Guid, PlayerAssetFile> assetFiles,
+        DateTimeOffset authorizationExpiresAtUtc,
+        DateTimeOffset trustedNowUtc)
     {
         ArgumentNullException.ThrowIfNull(manifest);
         ArgumentNullException.ThrowIfNull(assetFiles);
@@ -106,8 +130,51 @@ public sealed class PlayerStateStore(TimeProvider timeProvider)
         {
             _manifest = manifest;
             _assetFiles = new Dictionary<Guid, PlayerAssetFile>(assetFiles);
+            SetAuthorization(authorizationExpiresAtUtc, trustedNowUtc);
             Set("ready", "Playing", null, deviceId, manifest.Version);
         }
+    }
+
+    private void ExpireAuthorizationIfRequired()
+    {
+        if (_authorizationStartedTimestamp is not long startedTimestamp ||
+            _authorizationDuration is not TimeSpan duration ||
+            timeProvider.GetElapsedTime(startedTimestamp) < duration)
+        {
+            return;
+        }
+
+        _manifest = null;
+        _assetFiles = new Dictionary<Guid, PlayerAssetFile>();
+        _authorizationExpiresAtUtc = null;
+        _authorizationStartedTimestamp = null;
+        _authorizationDuration = null;
+        Set("notLicensed", "Not licensed", "lease_expired", null, null);
+    }
+
+    private void SetAuthorization(DateTimeOffset authorizationExpiresAtUtc, DateTimeOffset trustedNowUtc)
+    {
+        if (authorizationExpiresAtUtc.Offset != TimeSpan.Zero || trustedNowUtc.Offset != TimeSpan.Zero ||
+            authorizationExpiresAtUtc <= trustedNowUtc)
+        {
+            throw new InvalidOperationException("Player authorization must have a future UTC expiry.");
+        }
+
+        _authorizationExpiresAtUtc = authorizationExpiresAtUtc;
+        _authorizationStartedTimestamp = timeProvider.GetTimestamp();
+        _authorizationDuration = authorizationExpiresAtUtc - trustedNowUtc;
+    }
+
+    private long? AuthorizationRemainingMilliseconds()
+    {
+        if (_authorizationStartedTimestamp is not long startedTimestamp ||
+            _authorizationDuration is not TimeSpan duration)
+        {
+            return null;
+        }
+
+        var remaining = duration - timeProvider.GetElapsedTime(startedTimestamp);
+        return Math.Max(0, (long)Math.Ceiling(remaining.TotalMilliseconds));
     }
 
     private void Set(string status, string message, string? safeReasonCode, Guid? deviceId, long? version) =>
@@ -117,6 +184,8 @@ public sealed class PlayerStateStore(TimeProvider timeProvider)
             safeReasonCode,
             deviceId,
             version,
+            _authorizationExpiresAtUtc,
+            AuthorizationRemainingMilliseconds(),
             timeProvider.GetUtcNow());
 }
 
@@ -126,6 +195,8 @@ public sealed record PlayerStateSnapshot(
     string? SafeReasonCode,
     Guid? DeviceId,
     long? DesiredStateVersion,
+    DateTimeOffset? AuthorizationExpiresAtUtc,
+    long? AuthorizationRemainingMilliseconds,
     DateTimeOffset UpdatedAtUtc);
 
 public sealed record ActivePlayerManifest(

@@ -107,7 +107,7 @@ test('password recovery remains enumeration-safe and accessible', async ({ page 
 test('one-use invitation screen exposes labelled controls and no WCAG A/AA violation', async ({ page }) => {
   await page.route('**/api/v1/session', (route) => fulfilJson(route, anonymousSession))
 
-  await page.goto('http://127.0.0.1:4173/accept-invitation?token=one-use-test-token')
+  await page.goto('http://127.0.0.1:4173/#/accept-invitation?token=one-use-test-token')
   await expect(page.getByRole('heading', { name: 'Créer votre compte' })).toBeVisible()
   await expect(page.getByLabel('Nom affiché')).toBeVisible()
   await expect(page.getByLabel('Mot de passe')).toHaveAttribute('autocomplete', 'new-password')

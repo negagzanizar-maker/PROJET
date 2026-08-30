@@ -17,7 +17,13 @@ test('player renders only the manifest content returned by the local agent', asy
   await page.route('**/player/v1/state', (route) => route.fulfill({
     status: 200,
     contentType: 'application/json',
-    body: JSON.stringify({ status: 'ready', message: 'Ready', desiredStateVersion: 7 }),
+    body: JSON.stringify({
+      status: 'ready',
+      message: 'Ready',
+      desiredStateVersion: 7,
+      authorizationExpiresAtUtc: new Date(Date.now() + 60_000).toISOString(),
+      authorizationRemainingMilliseconds: 60_000,
+    }),
   }))
   await page.route('**/player/v1/manifest', (route) => route.fulfill({
     status: 200,

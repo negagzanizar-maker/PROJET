@@ -118,4 +118,4 @@ public sealed class PlatformBootstrapController(
 public sealed record CreatePlatformAdministratorRequest(
     [param: Required, EmailAddress, StringLength(320)] string Email,
     [param: Required, StringLength(160, MinimumLength = 1)] string DisplayName,
-    [param: Required, StringLength(1024, MinimumLength = 12)] string Password);
+    [param: Required, StringLength(1024, MinimumLength = 15)] string Password);

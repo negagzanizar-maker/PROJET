@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using System.Security.Claims;
+using System.Security.Cryptography;
 using System.Text.Json;
 using DisplayControl.Api.Scheduling;
 using DisplayControl.Api.Security;
@@ -31,7 +32,8 @@ public sealed class DeviceHeartbeatsController(
         DeviceHeartbeatRequest request,
         CancellationToken cancellationToken)
     {
-        if (!DeviceInventoryNormalizer.TryNormalize(request.NetworkInterfaces, out var normalizedInterfaces) ||
+        if (request.BootId == Guid.Empty ||
+            !DeviceInventoryNormalizer.TryNormalize(request.NetworkInterfaces, out var normalizedInterfaces) ||
             request.ReportedSentAtUtc is { Offset: var reportedOffset } && reportedOffset != TimeSpan.Zero)
         {
             return InvalidHeartbeat();
@@ -41,8 +43,29 @@ public sealed class DeviceHeartbeatsController(
         var deviceId = RequiredClaimGuid(DeviceClaimTypes.DeviceId);
         var certificateId = RequiredClaimGuid(DeviceClaimTypes.CertificateId);
         var nowUtc = timeProvider.GetUtcNow();
+        var requestSha256 = SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(request));
+        var idempotencyLockKey = $"heartbeat:{deviceId:N}:{request.BootId:N}";
+        await dbContext.Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT pg_advisory_xact_lock(hashtextextended({idempotencyLockKey}, 0))",
+            cancellationToken);
+        var priorHeartbeat = await dbContext.DeviceHeartbeats.AsNoTracking().SingleOrDefaultAsync(
+            value => value.DeviceId == deviceId && value.BootId == request.BootId && value.Sequence == request.Sequence,
+            cancellationToken);
+        if (priorHeartbeat is not null)
+        {
+            if (!CryptographicOperations.FixedTimeEquals(priorHeartbeat.RequestSha256, requestSha256) ||
+                string.IsNullOrWhiteSpace(priorHeartbeat.ResponseJson))
+            {
+                return HeartbeatReplay();
+            }
+
+            var priorResponse = JsonSerializer.Deserialize<DeviceHeartbeatResponse>(priorHeartbeat.ResponseJson)
+                ?? throw new InvalidOperationException("Stored heartbeat response is invalid.");
+            return Ok(priorResponse);
+        }
+
         var latestSequence = await dbContext.DeviceHeartbeats
-            .Where(value => value.DeviceId == deviceId)
+            .Where(value => value.DeviceId == deviceId && value.BootId == request.BootId)
             .MaxAsync(value => (long?)value.Sequence, cancellationToken) ?? 0;
         if (request.Sequence <= latestSequence)
         {
@@ -84,11 +107,13 @@ public sealed class DeviceHeartbeatsController(
             request.DiskCapacityBytes,
             networkInterfaces = normalizedInterfaces
         });
-        dbContext.DeviceHeartbeats.Add(new DeviceHeartbeat(
+        var heartbeatRecord = new DeviceHeartbeat(
             Guid.NewGuid(),
             tenantId,
             deviceId,
+            request.BootId,
             request.Sequence,
+            requestSha256,
             request.ReportedSentAtUtc,
             nowUtc,
             HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
@@ -97,7 +122,8 @@ public sealed class DeviceHeartbeatsController(
             request.PlayerStateCode,
             request.FreeDiskBytes,
             request.LastErrorCode,
-            HttpContext.TraceIdentifierGuid()));
+            HttpContext.TraceIdentifierGuid());
+        dbContext.DeviceHeartbeats.Add(heartbeatRecord);
 
         var existingInterfaces = await dbContext.DeviceNetworkInterfaces
             .Where(value => value.DeviceId == deviceId)
@@ -124,18 +150,20 @@ public sealed class DeviceHeartbeatsController(
             .FirstOrDefaultAsync(cancellationToken);
         if (license is null)
         {
-            if (!await TrySaveAsync(cancellationToken))
-            {
-                return HeartbeatReplay();
-            }
-
-            return Ok(new DeviceHeartbeatResponse(
+            var deniedResponse = new DeviceHeartbeatResponse(
                 nowUtc,
                 30,
                 "notLicensed",
                 null,
                 null,
-                new DesiredStateSummaryResponse("notLicensed", null, null)));
+                new DesiredStateSummaryResponse("notLicensed", null, null));
+            heartbeatRecord.RecordResponse(JsonSerializer.Serialize(deniedResponse));
+            if (!await TrySaveAsync(cancellationToken))
+            {
+                return HeartbeatReplay();
+            }
+
+            return Ok(deniedResponse);
         }
 
         var desiredState = await desiredStateResolver.ResolveAsync(deviceId, nowUtc, cancellationToken);
@@ -158,12 +186,7 @@ public sealed class DeviceHeartbeatsController(
             desiredState?.ManifestSha256,
             authorizationBoundaryUtc);
         license.RecordLeaseIssued(signedLease.ExpiresAtUtc, nowUtc);
-        if (!await TrySaveAsync(cancellationToken))
-        {
-            return HeartbeatReplay();
-        }
-
-        return Ok(new DeviceHeartbeatResponse(
+        var licensedResponse = new DeviceHeartbeatResponse(
             nowUtc,
             30,
             "licensed",
@@ -176,7 +199,14 @@ public sealed class DeviceHeartbeatsController(
             license.ExpiresAtUtc,
             desiredState is null
                 ? new DesiredStateSummaryResponse("licensedNoContent", null, null)
-                : new DesiredStateSummaryResponse("available", desiredState.Id, desiredState.Version)));
+                : new DesiredStateSummaryResponse("available", desiredState.Id, desiredState.Version));
+        heartbeatRecord.RecordResponse(JsonSerializer.Serialize(licensedResponse));
+        if (!await TrySaveAsync(cancellationToken))
+        {
+            return HeartbeatReplay();
+        }
+
+        return Ok(licensedResponse);
     }
 
     private async Task<bool> TrySaveAsync(CancellationToken cancellationToken)
@@ -217,6 +247,7 @@ public sealed class DeviceHeartbeatsController(
 }
 
 public sealed record DeviceHeartbeatRequest(
+    Guid BootId,
     [param: Range(1, long.MaxValue)] long Sequence,
     DateTimeOffset? ReportedSentAtUtc,
     [param: Required, StringLength(253, MinimumLength = 1)] string Hostname,

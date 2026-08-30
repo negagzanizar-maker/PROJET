@@ -169,7 +169,10 @@ public sealed partial class DisplayControlDbContext
         });
         ConfigureTenantOwned(entity, "device_heartbeats");
         entity.Property(value => value.DeviceId).HasColumnName("device_id").IsRequired();
+        entity.Property(value => value.BootId).HasColumnName("boot_id").IsRequired();
         entity.Property(value => value.Sequence).HasColumnName("sequence").IsRequired();
+        entity.Property(value => value.RequestSha256).HasColumnName("request_sha256").IsRequired();
+        entity.Property(value => value.ResponseJson).HasColumnName("response_json").HasColumnType("jsonb");
         entity.Property(value => value.ReportedSentAtUtc).HasColumnName("reported_sent_at_utc");
         entity.Property(value => value.ReceivedAtUtc).HasColumnName("received_at_utc").IsRequired();
         entity.Property(value => value.ServerObservedIp).HasColumnName("server_observed_ip").HasMaxLength(64).IsRequired();
@@ -185,9 +188,9 @@ public sealed partial class DisplayControlDbContext
             .HasPrincipalKey(value => new { value.TenantId, value.Id })
             .OnDelete(DeleteBehavior.Restrict)
             .HasConstraintName("fk_device_heartbeats_devices_tenant");
-        entity.HasIndex(value => new { value.TenantId, value.DeviceId, value.Sequence })
+        entity.HasIndex(value => new { value.TenantId, value.DeviceId, value.BootId, value.Sequence })
             .IsUnique()
-            .HasDatabaseName("ux_device_heartbeats_device_sequence");
+            .HasDatabaseName("ux_device_heartbeats_device_boot_sequence");
         entity.HasIndex(value => new { value.TenantId, value.DeviceId, value.ReceivedAtUtc })
             .HasDatabaseName("ix_device_heartbeats_device_received");
         entity.HasQueryFilter(value => CurrentTenantId.HasValue && value.TenantId == CurrentTenantId.Value);

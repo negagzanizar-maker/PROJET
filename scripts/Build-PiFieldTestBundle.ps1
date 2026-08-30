@@ -1,6 +1,6 @@
 param(
     [ValidatePattern('^[0-9A-Za-z._-]{1,64}$')]
-    [string] $Version = '0.1.0-field-test',
+    [string] $Version = '0.1.3-field-test',
 
     [string] $ServerCaCertificatePath
 )
@@ -22,10 +22,12 @@ try {
     npm.cmd run build --workspace player-web
     if ($LASTEXITCODE -ne 0) { throw 'The player build failed.' }
 
+    $runtimeLockTemplate = Join-Path $stagingRoot '$(MSBuildProjectName).packages.lock.json'
     dotnet restore src/DisplayControl.DeviceAgent/DisplayControl.DeviceAgent.csproj `
         --runtime linux-arm64 `
-        --locked-mode
-    if ($LASTEXITCODE -ne 0) { throw 'The pinned linux-arm64 runtime restore failed.' }
+        --force-evaluate `
+        "-p:NuGetLockFilePath=$runtimeLockTemplate"
+    if ($LASTEXITCODE -ne 0) { throw 'The isolated linux-arm64 runtime restore failed.' }
 
     dotnet publish src/DisplayControl.DeviceAgent/DisplayControl.DeviceAgent.csproj `
         --configuration Release `

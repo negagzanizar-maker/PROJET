@@ -78,14 +78,14 @@ describe('administration authentication shell', () => {
     await user.type(screen.getByLabelText('Administrateur initial'), 'customer@example.test')
     await user.click(screen.getByRole('button', { name: 'Créer le client' }))
 
-    expect(await screen.findByText(/accept-invitation\?token=one-time-invitation/)).toBeInTheDocument()
+    expect(await screen.findByText(/#\/accept-invitation\?token=one-time-invitation/)).toBeInTheDocument()
     expect(screen.getByText('Customer B')).toBeInTheDocument()
     const createOptions = fetchMock.mock.calls[2]?.[1] as RequestInit
     expect((createOptions.headers as Record<string, string>)['X-CSRF-TOKEN']).toBe('platform-csrf')
   })
 
   it('accepts an invitation from the one-time link and returns to sign-in', async () => {
-    window.history.replaceState(null, '', '/accept-invitation?token=invite-token')
+    window.history.replaceState(null, '', '/#/accept-invitation?token=invite-token')
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify(anonymousSession), { status: 200 }))
       .mockResolvedValueOnce(new Response(null, { status: 204 }))
@@ -100,6 +100,13 @@ describe('administration authentication shell', () => {
 
     expect(await screen.findByRole('heading', { name: 'Se connecter' })).toBeInTheDocument()
     expect(screen.getByText(/invitation acceptée/i)).toBeInTheDocument()
-    expect(fetchMock.mock.calls[1]?.[0]).toBe('/api/v1/invitations/invite-token/accept')
+    expect(fetchMock.mock.calls[1]?.[0]).toBe('/api/v1/invitations/accept')
+    const acceptanceCall = fetchMock.mock.calls[1]
+    expect(acceptanceCall).toBeDefined()
+    expect(JSON.parse(String((acceptanceCall![1] as RequestInit).body))).toEqual({
+      token: 'invite-token',
+      displayName: 'New User',
+      password: 'StrongPassword123',
+    })
   })
 })

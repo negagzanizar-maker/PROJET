@@ -23,9 +23,11 @@ public sealed class DeviceInventoryCollector(IOptions<AgentRuntimeOptions> optio
         var drive = new DriveInfo(root);
         var networks = NetworkInterface.GetAllNetworkInterfaces()
             .Where(value => value.OperationalStatus == OperationalStatus.Up &&
-                value.NetworkInterfaceType != NetworkInterfaceType.Loopback)
+                value.NetworkInterfaceType != NetworkInterfaceType.Loopback &&
+                !string.IsNullOrWhiteSpace(value.Name) &&
+                value.Name.Trim().Length <= 64)
             .Select(value => new DeviceNetworkSnapshot(
-                value.Name,
+                value.Name.Trim(),
                 NormalizeMac(value.GetPhysicalAddress()),
                 value.GetIPProperties().UnicastAddresses
                     .Select(address => address.Address)
@@ -34,7 +36,7 @@ public sealed class DeviceInventoryCollector(IOptions<AgentRuntimeOptions> optio
                     .Distinct(StringComparer.Ordinal)
                     .Order(StringComparer.Ordinal)
                     .ToArray()))
-            .Where(value => value.MacAddress is not null || value.LocalAddresses.Count > 0)
+            .Where(value => value.LocalAddresses.Count > 0)
             .OrderBy(value => value.InterfaceName, StringComparer.Ordinal)
             .Take(16)
             .ToArray();

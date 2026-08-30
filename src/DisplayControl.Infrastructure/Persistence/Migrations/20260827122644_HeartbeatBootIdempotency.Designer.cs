@@ -3,6 +3,7 @@ using System;
 using DisplayControl.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace DisplayControl.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(DisplayControlDbContext))]
-    partial class DisplayControlDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260827122644_HeartbeatBootIdempotency")]
+    partial class HeartbeatBootIdempotency
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

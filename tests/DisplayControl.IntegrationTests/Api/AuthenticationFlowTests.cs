@@ -52,6 +52,12 @@ public sealed class AuthenticationFlowTests : IClassFixture<AuthenticationFlowFi
     public async Task PasswordMfaRbacInvitationAndSignOutFlowUsesRealPostgreSql18()
     {
         using var client = _fixture.CreateClient();
+        using (var readiness = await client.GetAsync("/_health/ready"))
+        {
+            readiness.EnsureSuccessStatusCode();
+            Assert.Contains("\"status\":\"healthy\"", await readiness.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        }
+
         var anonymousSession = await GetSessionAsync(client);
 
         using (var wrongPassword = await PostAsync(
@@ -134,6 +140,71 @@ public sealed class AuthenticationFlowTests : IClassFixture<AuthenticationFlowFi
         }
 
         Assert.StartsWith($"v1.{AuthenticationFlowFixture.TenantId:N}.", createdInvitation.Token, StringComparison.Ordinal);
+
+        using (var viewerClient = _fixture.CreateClient())
+        {
+            const string viewerPassword = "DemoSecurePassphrase2026";
+            var viewerAnonymousSession = await GetSessionAsync(viewerClient);
+            using (var rejectCommonPassword = await PostAsync(
+                viewerClient,
+                "/api/v1/invitations/accept",
+                new
+                {
+                    token = createdInvitation.Token,
+                    displayName = "Tenant Viewer",
+                    password = "passwordpassword"
+                },
+                viewerAnonymousSession.CsrfToken))
+            {
+                Assert.Equal(HttpStatusCode.BadRequest, rejectCommonPassword.StatusCode);
+            }
+
+            using (var acceptInvitation = await PostAsync(
+                viewerClient,
+                "/api/v1/invitations/accept",
+                new
+                {
+                    token = createdInvitation.Token,
+                    displayName = "Tenant Viewer",
+                    password = viewerPassword
+                },
+                viewerAnonymousSession.CsrfToken))
+            {
+                Assert.Equal(HttpStatusCode.NoContent, acceptInvitation.StatusCode);
+            }
+
+            using (var viewerSignIn = await PostAsync(
+                viewerClient,
+                "/api/v1/auth/sign-in",
+                new { email = "viewer@example.test", password = viewerPassword },
+                viewerAnonymousSession.CsrfToken))
+            {
+                viewerSignIn.EnsureSuccessStatusCode();
+            }
+
+            var viewerSession = await GetSessionAsync(viewerClient);
+            Assert.Equal("Viewer", viewerSession.TenantRole);
+            using (var allowedRead = await viewerClient.GetAsync(
+                $"/api/v1/tenants/{AuthenticationFlowFixture.TenantId}/devices"))
+            {
+                allowedRead.EnsureSuccessStatusCode();
+            }
+
+            using (var deniedWrite = await PostAsync(
+                viewerClient,
+                $"/api/v1/tenants/{AuthenticationFlowFixture.TenantId}/invitations",
+                new { email = "denied@example.test", role = "viewer" },
+                viewerSession.CsrfToken))
+            {
+                Assert.Equal(HttpStatusCode.Forbidden, deniedWrite.StatusCode);
+            }
+
+            using (var deniedCrossTenant = await viewerClient.GetAsync(
+                $"/api/v1/tenants/{Guid.NewGuid()}/devices"))
+            {
+                Assert.Equal(HttpStatusCode.Forbidden, deniedCrossTenant.StatusCode);
+            }
+        }
 
         EnrollmentCodeCreatedResponse enrollmentCode;
         using (var createEnrollment = await PostAsync(
@@ -302,34 +373,37 @@ public sealed class AuthenticationFlowTests : IClassFixture<AuthenticationFlowFi
 
         _fixture.SetDeviceCertificate(enrolled.CertificatePem);
         client.DefaultRequestHeaders.Add("X-Test-Client-Certificate", "present");
+        var bootId = Guid.NewGuid();
+        var heartbeatRequest = new
+        {
+            bootId,
+            sequence = 1,
+            reportedSentAtUtc = DateTimeOffset.UtcNow,
+            hostname = "pi-lobby",
+            osDescription = "Raspberry Pi OS 64-bit",
+            architecture = "arm64",
+            agentVersion = "1.0.0",
+            playerVersion = "1.0.0",
+            diskCapacityBytes = 64L * 1024 * 1024 * 1024,
+            freeDiskBytes = 48L * 1024 * 1024 * 1024,
+            appliedDesiredStateVersion = (long?)null,
+            playerStateCode = "licensedNoContent",
+            lastErrorCode = (string?)null,
+            networkInterfaces = new[]
+            {
+                new
+                {
+                    interfaceName = "eth0",
+                    macAddress = "02:00:00:00:00:01",
+                    localAddresses = TestLocalAddresses
+                }
+            }
+        };
         DeviceHeartbeatResponse heartbeat;
         using (var heartbeatResponse = await PostAsync(
             client,
             "/device/v1/heartbeats",
-            new
-            {
-                sequence = 1,
-                reportedSentAtUtc = DateTimeOffset.UtcNow,
-                hostname = "pi-lobby",
-                osDescription = "Raspberry Pi OS 64-bit",
-                architecture = "arm64",
-                agentVersion = "1.0.0",
-                playerVersion = "1.0.0",
-                diskCapacityBytes = 64L * 1024 * 1024 * 1024,
-                freeDiskBytes = 48L * 1024 * 1024 * 1024,
-                appliedDesiredStateVersion = (long?)null,
-                playerStateCode = "licensedNoContent",
-                lastErrorCode = (string?)null,
-                networkInterfaces = new[]
-                {
-                    new
-                    {
-                        interfaceName = "eth0",
-                        macAddress = "02:00:00:00:00:01",
-                        localAddresses = TestLocalAddresses
-                    }
-                }
-            },
+            heartbeatRequest,
             authenticatedSession.CsrfToken))
         {
             heartbeatResponse.EnsureSuccessStatusCode();
@@ -356,8 +430,21 @@ public sealed class AuthenticationFlowTests : IClassFixture<AuthenticationFlowFi
         using (var replayHeartbeat = await PostAsync(
             client,
             "/device/v1/heartbeats",
+            heartbeatRequest,
+            authenticatedSession.CsrfToken))
+        {
+            replayHeartbeat.EnsureSuccessStatusCode();
+            var replayed = await replayHeartbeat.Content.ReadFromJsonAsync<DeviceHeartbeatResponse>();
+            Assert.Equal(heartbeat.Lease?.Token, replayed?.Lease?.Token);
+            Assert.Equal(heartbeat.ServerTimeUtc, replayed?.ServerTimeUtc);
+        }
+
+        using (var changedHeartbeatReplay = await PostAsync(
+            client,
+            "/device/v1/heartbeats",
             new
             {
+                bootId,
                 sequence = 1,
                 hostname = "pi-lobby",
                 osDescription = "Raspberry Pi OS 64-bit",
@@ -373,7 +460,58 @@ public sealed class AuthenticationFlowTests : IClassFixture<AuthenticationFlowFi
             },
             authenticatedSession.CsrfToken))
         {
-            Assert.Equal(HttpStatusCode.Conflict, replayHeartbeat.StatusCode);
+            Assert.Equal(HttpStatusCode.Conflict, changedHeartbeatReplay.StatusCode);
+        }
+
+        var delayedBootId = Guid.NewGuid();
+        using (var delayedHeartbeat = await PostAsync(
+            client,
+            "/device/v1/heartbeats",
+            new
+            {
+                bootId = delayedBootId,
+                sequence = 2,
+                reportedSentAtUtc = DateTimeOffset.UtcNow.AddMinutes(-10),
+                hostname = "pi-lobby",
+                osDescription = "Raspberry Pi OS 64-bit",
+                architecture = "arm64",
+                agentVersion = "1.0.0",
+                playerVersion = "1.0.0",
+                diskCapacityBytes = 1L,
+                freeDiskBytes = 1L,
+                appliedDesiredStateVersion = (long?)null,
+                playerStateCode = "licensedNoContent",
+                lastErrorCode = (string?)null,
+                networkInterfaces = Array.Empty<object>()
+            },
+            authenticatedSession.CsrfToken))
+        {
+            delayedHeartbeat.EnsureSuccessStatusCode();
+        }
+
+        using (var outOfOrderHeartbeat = await PostAsync(
+            client,
+            "/device/v1/heartbeats",
+            new
+            {
+                bootId = delayedBootId,
+                sequence = 1,
+                reportedSentAtUtc = DateTimeOffset.UtcNow,
+                hostname = "pi-lobby",
+                osDescription = "Raspberry Pi OS 64-bit",
+                architecture = "arm64",
+                agentVersion = "1.0.0",
+                playerVersion = "1.0.0",
+                diskCapacityBytes = 1L,
+                freeDiskBytes = 1L,
+                appliedDesiredStateVersion = (long?)null,
+                playerStateCode = "licensedNoContent",
+                lastErrorCode = (string?)null,
+                networkInterfaces = Array.Empty<object>()
+            },
+            authenticatedSession.CsrfToken))
+        {
+            Assert.Equal(HttpStatusCode.Conflict, outOfOrderHeartbeat.StatusCode);
         }
 
         var png = new byte[32];
@@ -506,6 +644,7 @@ public sealed class AuthenticationFlowTests : IClassFixture<AuthenticationFlowFi
             "/device/v1/heartbeats",
             new
             {
+                bootId,
                 sequence = 2,
                 hostname = "pi-lobby",
                 osDescription = "Raspberry Pi OS 64-bit",
@@ -556,6 +695,7 @@ public sealed class AuthenticationFlowTests : IClassFixture<AuthenticationFlowFi
             "/device/v1/heartbeats",
             new
             {
+                bootId,
                 sequence = 3,
                 hostname = "pi-lobby",
                 osDescription = "Raspberry Pi OS 64-bit",
@@ -638,6 +778,7 @@ public sealed class AuthenticationFlowTests : IClassFixture<AuthenticationFlowFi
             "/device/v1/heartbeats",
             new
             {
+                bootId,
                 sequence = 4,
                 hostname = "pi-lobby",
                 osDescription = "Raspberry Pi OS 64-bit",
@@ -725,6 +866,7 @@ public sealed class AuthenticationFlowTests : IClassFixture<AuthenticationFlowFi
             "/device/v1/heartbeats",
             new
             {
+                bootId,
                 sequence = 5,
                 hostname = "pi-lobby",
                 osDescription = "Raspberry Pi OS 64-bit",
@@ -748,7 +890,8 @@ public sealed class AuthenticationFlowTests : IClassFixture<AuthenticationFlowFi
         var members = await client.GetFromJsonAsync<TenantMemberResponse[]>(
             $"/api/v1/tenants/{AuthenticationFlowFixture.TenantId}/members",
             ResponseJsonOptions);
-        var administrator = Assert.Single(members ?? []);
+        Assert.Equal(2, members?.Length);
+        var administrator = Assert.Single(members ?? [], value => value.Role == TenantRole.TenantAdmin);
         Assert.Equal(TenantRole.TenantAdmin, administrator.Role);
         using (var selfSuspend = await PostAsync(
             client,
@@ -763,6 +906,10 @@ public sealed class AuthenticationFlowTests : IClassFixture<AuthenticationFlowFi
             $"/api/v1/tenants/{AuthenticationFlowFixture.TenantId}/audit-events");
         Assert.Contains(auditEvents ?? [], value => value.Action == "content.approved");
         Assert.Contains(auditEvents ?? [], value => value.Action == "assignment.published");
+        Assert.Contains(auditEvents ?? [], value => value.Action == "identity.authentication.sign_in");
+        Assert.Contains(auditEvents ?? [], value => value.Action == "identity.mfa.enrollment_confirmed");
+        Assert.Contains(auditEvents ?? [], value => value.Action == "identity.invitation.created");
+        Assert.Contains(auditEvents ?? [], value => value.Action == "identity.invitation.accepted");
 
         using (var crossTenant = await PostAsync(
             client,
@@ -1059,7 +1206,7 @@ public sealed class AuthenticationFlowFixture : IAsyncLifetime
     public const string AdminEmail = "admin@example.test";
     public const string AdminPassword = "StrongPassword123";
     public const string PlatformAdminEmail = "platform@example.test";
-    public const string PlatformAdminPassword = "PlatformPassword123";
+    public const string PlatformAdminPassword = "ControlPlanePassphrase2026";
     public const string PlatformBootstrapToken = "integration-bootstrap-token-with-strong-entropy";
     public static readonly Guid TenantId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
     private const string RuntimeLogin = "display_control_runtime_test";

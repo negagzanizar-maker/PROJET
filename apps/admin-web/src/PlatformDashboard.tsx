@@ -129,7 +129,7 @@ function PlatformDashboard({ session, post }: { session: Session; post: PostJson
           <label>Administrateur initial<input disabled={busy} maxLength={320} name="email" required type="email" /></label>
           <button className="primary-button" disabled={busy} type="submit">Créer le client</button>
         </form>
-        {invitation && <div className="one-time-secret" role="status"><strong>Invitation à transmettre par un canal sûr</strong><span>{invitation.initialAdministratorEmail} · expire le {new Date(invitation.invitationExpiresAtUtc).toLocaleString('fr-FR')}</span><code>{`${window.location.origin}/accept-invitation?token=${encodeURIComponent(invitation.invitationToken)}`}</code><button className="text-button" onClick={() => setInvitation(null)} type="button">Masquer</button></div>}
+        {invitation && <div className="one-time-secret" role="status"><strong>Invitation à transmettre par un canal sûr</strong><span>{invitation.initialAdministratorEmail} · expire le {new Date(invitation.invitationExpiresAtUtc).toLocaleString('fr-FR')}</span><code>{`${window.location.origin}/#/accept-invitation?token=${encodeURIComponent(invitation.invitationToken)}`}</code><button className="text-button" onClick={() => setInvitation(null)} type="button">Masquer</button></div>}
       </section>
 
       <section className="data-section" id="platform-tenants" aria-labelledby="tenant-list-title">

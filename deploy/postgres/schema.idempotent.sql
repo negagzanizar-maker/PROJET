@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS "__EFMigrationsHistory" (
+﻿CREATE TABLE IF NOT EXISTS "__EFMigrationsHistory" (
     "MigrationId" character varying(150) NOT NULL,
     "ProductVersion" character varying(32) NOT NULL,
     CONSTRAINT "PK___EFMigrationsHistory" PRIMARY KEY ("MigrationId")
@@ -204,7 +204,6 @@ BEGIN
     END IF;
 END $EF$;
 COMMIT;
-
 START TRANSACTION;
 
 DO $EF$
@@ -1701,6 +1700,52 @@ BEGIN
     IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260815204800_AllowUserlessInvitationNotifications') THEN
     INSERT INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion")
     VALUES ('20260815204800_AllowUserlessInvitationNotifications', '10.0.7');
+    END IF;
+END $EF$;
+COMMIT;
+
+START TRANSACTION;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260827122644_HeartbeatBootIdempotency') THEN
+    DROP INDEX app.ux_device_heartbeats_device_sequence;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260827122644_HeartbeatBootIdempotency') THEN
+    ALTER TABLE app.device_heartbeats ADD boot_id uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000';
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260827122644_HeartbeatBootIdempotency') THEN
+    ALTER TABLE app.device_heartbeats ADD request_sha256 bytea NOT NULL DEFAULT BYTEA E'\\x';
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260827122644_HeartbeatBootIdempotency') THEN
+    ALTER TABLE app.device_heartbeats ADD response_json jsonb;
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260827122644_HeartbeatBootIdempotency') THEN
+    CREATE UNIQUE INDEX ux_device_heartbeats_device_boot_sequence ON app.device_heartbeats (tenant_id, device_id, boot_id, sequence);
+    END IF;
+END $EF$;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM "__EFMigrationsHistory" WHERE "MigrationId" = '20260827122644_HeartbeatBootIdempotency') THEN
+    INSERT INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion")
+    VALUES ('20260827122644_HeartbeatBootIdempotency', '10.0.7');
     END IF;
 END $EF$;
 COMMIT;

@@ -25,6 +25,7 @@ public sealed class PasswordRecoveryController(
     ScopedTenantContext tenantContext,
     ISensitivePayloadProtector payloadProtector,
     UniformPasswordFailureService uniformPasswordFailure,
+    TenantSecurityAuditService securityAudit,
     TimeProvider timeProvider) : ControllerBase
 {
     [HttpPost("forgot-password")]
@@ -60,6 +61,17 @@ public sealed class PasswordRecoveryController(
                 payloadProtector.ProtectionScheme,
                 payloadProtector.Protect(payload),
                 timeProvider.GetUtcNow()));
+            if (user.HomeTenantId is Guid auditTenantId)
+            {
+                securityAudit.Add(
+                    auditTenantId,
+                    user.Id,
+                    "identity.password_recovery.requested",
+                    "user",
+                    user.Id,
+                    "success",
+                    null);
+            }
             await dbContext.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
         }
@@ -88,7 +100,14 @@ public sealed class PasswordRecoveryController(
             return ResetFailed();
         }
 
-        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+        if (user.HomeTenantId is Guid tenantId)
+        {
+            tenantContext.SetForCapabilityLookup(tenantId);
+        }
+
+        await using var transaction = user.HomeTenantId is Guid scopedTenantId
+            ? await dbContext.BeginTenantTransactionAsync(scopedTenantId, cancellationToken)
+            : await dbContext.Database.BeginTransactionAsync(cancellationToken);
         var result = await userManager.ResetPasswordAsync(user, request.Token, request.NewPassword);
         if (!result.Succeeded)
         {
@@ -104,6 +123,19 @@ public sealed class PasswordRecoveryController(
         foreach (var session in activeSessions)
         {
             session.Revoke("password_reset", nowUtc);
+        }
+
+        if (user.HomeTenantId is Guid auditTenantId)
+        {
+            securityAudit.Add(
+                auditTenantId,
+                user.Id,
+                "identity.password_recovery.completed",
+                "user",
+                user.Id,
+                "success",
+                null,
+                new { revokedSessions = activeSessions.Count });
         }
 
         await dbContext.SaveChangesAsync(cancellationToken);
@@ -126,7 +158,7 @@ public sealed record ForgotPasswordRequest(
 public sealed record ResetPasswordRequest(
     [param: Required, EmailAddress, StringLength(320)] string Email,
     [param: Required, StringLength(4096, MinimumLength = 16)] string Token,
-    [param: Required, StringLength(1024, MinimumLength = 12)] string NewPassword);
+    [param: Required, StringLength(1024, MinimumLength = 15)] string NewPassword);
 
 public sealed record PasswordRecoveryAcceptedResponse(string Message);
 

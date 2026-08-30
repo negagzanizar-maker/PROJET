@@ -17,7 +17,7 @@ public static class PasswordResetMessageFactory
             throw new InvalidOperationException("Password-reset notification token is invalid.");
         }
 
-        var relative = $"reset-password?email={Uri.EscapeDataString(recipientEmail)}&token={Uri.EscapeDataString(payload.Token)}";
+        var relative = $"#/reset-password?email={Uri.EscapeDataString(recipientEmail)}&token={Uri.EscapeDataString(payload.Token)}";
         var resetUri = new Uri(publicBaseUri, relative);
         var encodedUri = WebUtility.HtmlEncode(resetUri.AbsoluteUri);
         return new NotificationMail(
@@ -46,7 +46,7 @@ public static class InvitationMessageFactory
 
         var invitationUri = new Uri(
             publicBaseUri,
-            $"accept-invitation?token={Uri.EscapeDataString(payload.Token)}");
+            $"#/accept-invitation?token={Uri.EscapeDataString(payload.Token)}");
         var encodedUri = WebUtility.HtmlEncode(invitationUri.AbsoluteUri);
         return new NotificationMail(
             recipientEmail,

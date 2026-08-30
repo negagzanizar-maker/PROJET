@@ -19,7 +19,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Build-PiFieldTes
 
 The command creates the ignored directory `artifacts/pi-field-test` containing:
 
-- `display-control-pi-linux-arm64-0.1.0-field-test.tar.gz`;
+- `display-control-pi-linux-arm64-0.1.3-field-test.tar.gz`;
 - its `.sha256` file;
 - the `deploy-pi` installer directory.
 
@@ -129,9 +129,9 @@ On the Pi, replace the server address and desktop username. Read the digest from
 
 ```bash
 sudo ./deploy-pi/install.sh \
-  --artifact ./display-control-pi-linux-arm64-0.1.0-field-test.tar.gz \
+  --artifact ./display-control-pi-linux-arm64-0.1.3-field-test.tar.gz \
   --sha256 'PASTE_THE_64_CHARACTER_SHA256' \
-  --version '0.1.0-field-test' \
+  --version '0.1.3-field-test' \
   --server 'https://192.168.1.25:7443' \
   --server-ca './field-test-server-ca.crt' \
   --enrollment-code-file './enrollment-code.txt' \
@@ -181,3 +181,16 @@ Save screenshots and the two service journals as internship evidence.
 | Video is black or slow | First prove PNG/text; then test H.264/AAC and inspect Chromium/GPU support on the actual Pi image |
 
 This is a controlled field-test setup, not a production deployment. Remove the temporary Windows firewall rule and local CA after the test if they are no longer needed.
+
+## Optional virtual test without a Raspberry Pi
+
+The real Windows-hosted agent can represent a virtual device before the physical test. It reports the laptop hostname, IP and MAC addresses and uses an explicit development serial number. Create a normal one-use enrollment code in the customer dashboard, then run:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Start-VirtualDevice.ps1 `
+  -ApiBaseUri https://192.168.1.25:7443 `
+  -SerialNumber VIRTUALPI0001 `
+  -DisableServerCertificateRevocationCheck
+```
+
+Enter the enrollment code when prompted. The last switch is only for a private development CA without an online revocation service; certificate-chain and hostname validation remain enabled. The administration dashboard then exercises real enrollment, inventory, mTLS heartbeats, licensing, content synchronization and playback at `http://localhost:8787`. This does not validate ARM64, systemd, HDMI, Chromium kiosk attachment or Raspberry Pi hardware acceleration.

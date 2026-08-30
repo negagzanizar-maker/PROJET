@@ -1,0 +1,1012 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Display Control — Complete Technical and Operational Handbook</title>
+  <style>
+    :root {
+      --ink: #18212f;
+      --muted: #536176;
+      --brand: #0b5d67;
+      --brand-dark: #073f46;
+      --accent: #dd7b35;
+      --paper: #ffffff;
+      --soft: #eef5f5;
+      --line: #cbd8da;
+      --danger: #9b2c2c;
+      --warning: #8a5200;
+      --success: #246b43;
+    }
+
+    * { box-sizing: border-box; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: #e9eef0;
+      font-family: "Segoe UI", Arial, sans-serif;
+      font-size: 10.5pt;
+      line-height: 1.55;
+    }
+
+    main {
+      width: min(210mm, calc(100% - 32px));
+      margin: 24px auto;
+      padding: 19mm 18mm;
+      background: var(--paper);
+      box-shadow: 0 12px 42px rgba(20, 40, 50, .14);
+    }
+
+    h1, h2, h3, h4 { color: var(--brand-dark); line-height: 1.2; }
+    h1 { font-size: 27pt; margin: 0 0 8px; letter-spacing: -.5px; }
+    h2 { font-size: 19pt; margin: 30px 0 12px; padding-bottom: 6px; border-bottom: 2px solid var(--line); }
+    h3 { font-size: 14pt; margin: 22px 0 8px; }
+    h4 { font-size: 11.5pt; margin: 18px 0 6px; }
+    p { margin: 7px 0 11px; }
+    ul, ol { margin: 7px 0 13px; padding-left: 24px; }
+    li { margin: 3px 0; }
+    code { font-family: Consolas, "Courier New", monospace; font-size: .92em; }
+    a { color: var(--brand); text-decoration: none; }
+
+    .cover {
+      min-height: 245mm;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      page-break-after: always;
+      background: linear-gradient(145deg, var(--paper) 0 60%, var(--soft) 60% 100%);
+    }
+
+    .cover-mark {
+      width: 70px;
+      height: 70px;
+      display: grid;
+      place-items: center;
+      margin-bottom: 24px;
+      border-radius: 18px;
+      color: white;
+      background: var(--brand);
+      font-size: 35px;
+      font-weight: 700;
+    }
+
+    .subtitle { max-width: 650px; color: var(--muted); font-size: 15pt; }
+    .cover-meta { margin-top: 44px; color: var(--muted); }
+    .cover-meta strong { color: var(--ink); }
+    .tag { display: inline-block; margin: 4px 7px 4px 0; padding: 5px 10px; border-radius: 20px; background: var(--soft); color: var(--brand-dark); font-size: 9pt; font-weight: 600; }
+
+    .notice, .callout, .risk-note {
+      margin: 14px 0;
+      padding: 12px 14px;
+      border-left: 4px solid var(--brand);
+      background: var(--soft);
+      break-inside: avoid;
+    }
+
+    .notice strong, .callout strong, .risk-note strong { color: var(--brand-dark); }
+    .risk-note { border-color: var(--warning); background: #fff8e8; }
+    .critical { border-color: var(--danger); background: #fff2f2; }
+
+    table {
+      width: 100%;
+      margin: 12px 0 18px;
+      border-collapse: collapse;
+      font-size: 9.1pt;
+      break-inside: auto;
+    }
+
+    thead { display: table-header-group; }
+    tr { break-inside: avoid; }
+    th, td { padding: 7px 8px; border: 1px solid var(--line); text-align: left; vertical-align: top; }
+    th { color: var(--brand-dark); background: var(--soft); }
+
+    .toc { columns: 2; column-gap: 36px; }
+    .toc ol { margin: 0; }
+    .toc li { break-inside: avoid; margin: 6px 0; }
+
+    .diagram {
+      margin: 14px 0 18px;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #f8fbfb;
+      font-family: Consolas, "Courier New", monospace;
+      white-space: pre-wrap;
+      line-height: 1.35;
+      font-size: 8.8pt;
+      break-inside: avoid;
+    }
+
+    .flow {
+      margin: 10px 0 18px;
+      padding-left: 0;
+      list-style: none;
+      counter-reset: step;
+    }
+
+    .flow li {
+      position: relative;
+      margin: 0 0 9px 39px;
+      padding: 8px 10px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fbfdfd;
+      break-inside: avoid;
+    }
+
+    .flow li::before {
+      counter-increment: step;
+      content: counter(step);
+      position: absolute;
+      left: -39px;
+      top: 7px;
+      width: 28px;
+      height: 28px;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      color: white;
+      background: var(--brand);
+      font-weight: 700;
+    }
+
+    .status-good { color: var(--success); font-weight: 700; }
+    .status-open { color: var(--warning); font-weight: 700; }
+    .status-risk { color: var(--danger); font-weight: 700; }
+    .small { color: var(--muted); font-size: 9pt; }
+    .page-break { page-break-before: always; }
+    .keep { break-inside: avoid; }
+
+    @page { size: A4; margin: 15mm 14mm 16mm; }
+
+    @media print {
+      body { background: white; font-size: 10pt; }
+      main { width: auto; margin: 0; padding: 0; box-shadow: none; }
+      .cover { min-height: 255mm; }
+      h2 { page-break-after: avoid; }
+      h3, h4 { page-break-after: avoid; }
+      a { color: inherit; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <section class="cover">
+    <div class="cover-mark">D</div>
+    <h1>Display Control</h1>
+    <p class="subtitle">Complete Technical, Security, Workflow, Operations, and Management Handbook</p>
+    <div>
+      <span class="tag">Raspberry Pi digital signage</span>
+      <span class="tag">Multi-tenant platform</span>
+      <span class="tag">React + ASP.NET Core</span>
+      <span class="tag">PostgreSQL RLS</span>
+      <span class="tag">mTLS + signed offline licences</span>
+    </div>
+    <div class="cover-meta">
+      <p><strong>Prepared:</strong> 21 August 2026</p>
+      <p><strong>Repository:</strong> Display Control working title, version 0.1 development line</p>
+      <p><strong>Audience:</strong> Project manager, supervisor, developer, security reviewer, and operations team</p>
+      <p><strong>Purpose:</strong> Explain what the application does, how it works, the technologies used, important security decisions, known weaknesses, deployment requirements, and what remains before production.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Document scope and evidence basis</h2>
+    <div class="notice">
+      <strong>Important:</strong> This handbook describes the application-owned source code, configuration, tests, deployment assets, and project documentation present in the repository on 21 August 2026. It does not treat planned work as completed work. Third-party dependency source, Git internals, compiled output, local secrets, runtime data, and delivery artifacts are outside this review.
+    </div>
+    <p>The repository contains roughly 300 application-owned files and about 52,000 lines when generated Entity Framework migrations and dependency lockfiles are included. The implementation is a serious secure vertical slice, but its own project status correctly says that it is not yet production-ready.</p>
+    <p>The repository records the following most recent local verification: 85 .NET tests, 7 React tests, and 5 Playwright/axe browser scenarios passing. These figures are historical evidence recorded by the project; they were not rerun while preparing this handbook.</p>
+
+    <h2>Table of contents</h2>
+    <nav class="toc">
+      <ol>
+        <li><a href="#executive-summary">Executive summary</a></li>
+        <li><a href="#problem">Business problem and value</a></li>
+        <li><a href="#actors">Actors, roles, and permissions</a></li>
+        <li><a href="#architecture">System architecture</a></li>
+        <li><a href="#technology">Technology stack</a></li>
+        <li><a href="#repository">Repository and code organization</a></li>
+        <li><a href="#data">Data model</a></li>
+        <li><a href="#human-workflows">Human identity workflows</a></li>
+        <li><a href="#tenant-workflows">Tenant administration workflows</a></li>
+        <li><a href="#device-workflows">Raspberry Pi identity and heartbeat workflows</a></li>
+        <li><a href="#licensing">Licensing and offline authorization</a></li>
+        <li><a href="#content">Content, playlists, and scheduling</a></li>
+        <li><a href="#synchronization">Synchronization, cache, and playback</a></li>
+        <li><a href="#notifications">Email notification workflow</a></li>
+        <li><a href="#security">Security model and controls</a></li>
+        <li><a href="#risks">Known vulnerabilities, limitations, and risks</a></li>
+        <li><a href="#testing">Testing and evidence</a></li>
+        <li><a href="#deployment">Development and deployment</a></li>
+        <li><a href="#operations">Operations and troubleshooting</a></li>
+        <li><a href="#status">Current status and production gap</a></li>
+        <li><a href="#manager">Manager talking points and questions</a></li>
+        <li><a href="#glossary">Glossary</a></li>
+      </ol>
+    </nav>
+  </section>
+
+  <section id="executive-summary" class="page-break">
+    <h2>1. Executive summary</h2>
+    <p><strong>Display Control is a secure multi-customer digital-signage platform for Raspberry Pi screens.</strong> A central administration application lets authorized users manage customer organizations, users, screens, licences, media, playlists, groups, and schedules. Each Raspberry Pi independently connects to the central service, proves its identity with a client certificate, downloads only the content it is authorized to use, verifies every file, and displays it through a local Chromium kiosk.</p>
+    <p>The system is built around a fail-closed rule: if tenant identity, device identity, licence status, signed authorization, trusted time, media approval, or file integrity cannot be proven, the device must not display protected content. It shows <strong>Not licensed</strong> or another safe operational state instead.</p>
+
+    <h3>The one-sentence architecture</h3>
+    <div class="callout"><strong>The server decides and signs; the Pi agent verifies and enforces; the local React player only renders what the agent has authorized.</strong></div>
+
+    <h3>What is already implemented</h3>
+    <ul>
+      <li>Platform and tenant administration with invitation-only accounts and role-based access.</li>
+      <li>TOTP multifactor authentication, recovery codes, revocable server-side sessions, CSRF protection, and rate limiting.</li>
+      <li>Strict multi-tenant database isolation using application checks, Entity Framework filters, same-tenant foreign keys, and forced PostgreSQL Row-Level Security.</li>
+      <li>One-use Raspberry Pi enrollment, locally generated ECDSA keys, client certificates, mTLS authentication, certificate rotation, and revocation.</li>
+      <li>Device inventory and heartbeat reporting including serial, host, OS, software versions, disk, IP, and MAC information.</li>
+      <li>Per-device time-limited licences with renewal, suspension, revocation, transfer, and signed bounded offline leases.</li>
+      <li>Private content upload, file-signature inspection, SHA-256 hashing, ClamAV scanning, quarantine, approval, and immutable content versions.</li>
+      <li>Immutable playlists, device groups, direct/group assignments, priorities, and bounded scheduling.</li>
+      <li>Verified/resumable content downloads, local cache activation, and image/video/text playback.</li>
+      <li>Raspberry Pi systemd services, restricted service accounts, field-test packaging, and a virtual-device workflow.</li>
+    </ul>
+
+    <h3>What is not yet proven</h3>
+    <ul>
+      <li>Production infrastructure and operational readiness.</li>
+      <li>Physical Pi 4/5 playback, reboot, power-loss, clock, disk-pressure, and endurance evidence.</li>
+      <li>Real SMTP delivery and complete live-backend browser journeys.</li>
+      <li>Production monitoring, backup/restore, load testing, penetration testing, and signed agent updates.</li>
+    </ul>
+  </section>
+
+  <section id="problem">
+    <h2>2. Business problem and value</h2>
+    <p>The platform solves a common remote-screen problem: an organization wants to control content shown on Raspberry Pi displays located on different networks without opening inbound access to those customer networks.</p>
+
+    <h3>Business capabilities</h3>
+    <ul>
+      <li>Create isolated customer spaces.</li>
+      <li>Delegate access to customer administrators and content managers.</li>
+      <li>See which screens exist, where they are logically assigned, their network inventory, last contact, player health, and licence state.</li>
+      <li>Approve only safe content and publish stable playlists.</li>
+      <li>Target content to one device or a group, immediately or during a bounded time window.</li>
+      <li>Stop playback by suspending a device, tenant, licence, or certificate.</li>
+      <li>Allow limited offline playback without granting indefinite authorization.</li>
+      <li>Retain security/business audit evidence.</li>
+    </ul>
+
+    <h3>Design value</h3>
+    <p>The architecture avoids LAN discovery and inbound router rules. Every Pi initiates outbound HTTPS to the public service. This is easier to deploy through NAT and usually safer than allowing the platform to reach into customer networks.</p>
+    <p>The system also separates content possession from content authorization. A file may remain cached on disk, but the player cannot access it after authorization is removed because the agent clears the local manifest and asset mapping.</p>
+  </section>
+
+  <section id="actors">
+    <h2>3. Actors, roles, and permissions</h2>
+    <table>
+      <thead><tr><th>Actor</th><th>Responsibility</th><th>Important restrictions</th></tr></thead>
+      <tbody>
+        <tr><td>Platform administrator</td><td>Creates and manages customer tenants, including suspension and archiving.</td><td>Uses MFA; sensitive tenant operations require recent MFA. Does not automatically become a tenant user.</td></tr>
+        <tr><td>Tenant administrator</td><td>Manages members, devices, groups, certificates, enrolment codes, and licences for one tenant.</td><td>Bound to one tenant. Administrative access requires MFA; selected actions require a fresh MFA proof.</td></tr>
+        <tr><td>Content manager</td><td>Uploads, approves, archives, and publishes content/playlists/assignments.</td><td>Cannot administer tenant membership or licences.</td></tr>
+        <tr><td>Viewer</td><td>Reads tenant dashboards and operational state.</td><td>No mutation permission.</td></tr>
+        <tr><td>Raspberry Pi agent</td><td>Enrolls, authenticates, reports inventory, receives authorization, synchronizes content, and controls playback.</td><td>Uses a device certificate, never a human cookie. It receives only device-scoped content.</td></tr>
+        <tr><td>Local React player</td><td>Renders a sanitized local state and local content URLs.</td><td>Has no device private key, backend token, storage credential, or unrestricted filesystem path.</td></tr>
+        <tr><td>Notification worker</td><td>Sends invitation and password-recovery messages.</td><td>Uses a separate restricted database identity and only processes protected notification rows.</td></tr>
+      </tbody>
+    </table>
+    <div class="notice"><strong>No public signup:</strong> users enter through a one-use invitation. The very first platform administrator is created through a separate one-time bootstrap path protected by a configured token digest.</div>
+  </section>
+
+  <section id="architecture" class="page-break">
+    <h2>4. System architecture</h2>
+    <p>The selected architecture is a <strong>modular monolith</strong>. The backend runs as one ASP.NET Core application and one database, but responsibilities are separated into domain, application, infrastructure, HTTP, and background-worker components.</p>
+
+    <div class="diagram">People
+  Platform administrator ─┐
+  Tenant users ───────────┴── HTTPS, secure cookie, CSRF, MFA ──┐
+                                                               ▼
+                                                      React Admin SPA
+                                                               │ same origin
+                                                               ▼
+Public server boundary                            ASP.NET Core Control Plane
+  Reverse proxy / public TLS (production TBD) ───►  ├─ Identity and tenancy
+                                                     ├─ Devices and certificates
+                                                     ├─ Licensing and signed leases
+                                                     ├─ Content and desired state
+                                                     ├─ Audit and notifications
+                                                     └─ Health and operations
+                                                         │        │       │
+                                                         ▼        ▼       ▼
+                                                   PostgreSQL  Private  ClamAV
+                                                               storage
+
+Raspberry Pi boundary
+  C# Device Agent ── outbound HTTPS + client certificate ──────► API
+        │
+        ├─ owner-only identity/state files
+        ├─ verified media cache
+        └─ loopback HTTP on 127.0.0.1:8787
+                         │
+                         ▼
+                 React Player in Chromium kiosk</div>
+
+    <h3>Why a modular monolith?</h3>
+    <ul>
+      <li>One backend is easier to deploy, debug, migrate, and explain than many services.</li>
+      <li>Transactions can atomically update business state and audit/notification intent.</li>
+      <li>The project still keeps explicit boundaries so a future split remains possible.</li>
+      <li>It fits the scope of an internship/project while preserving serious security controls.</li>
+    </ul>
+
+    <h3>Important architectural nuance</h3>
+    <p>The intended layers exist, but the current <code>Application</code> project is relatively thin. It mainly contains interfaces, token/manifest codecs, file inspection, and storage/security contracts. A meaningful amount of use-case orchestration is currently implemented directly in API controllers and focused API services. This is acceptable for the current modular monolith but should be considered if business workflows become larger or need reuse outside HTTP.</p>
+
+    <h3>Network model</h3>
+    <ul>
+      <li>Browsers communicate with the admin application and same-origin API.</li>
+      <li>Pis communicate outward to device API routes over HTTPS with a client certificate.</li>
+      <li>No public service connects inbound to a Pi.</li>
+      <li>The player server listens only on <code>127.0.0.1:8787</code>.</li>
+      <li>Production documentation recommends separate admin and device hostnames so client-certificate handling does not complicate human traffic.</li>
+    </ul>
+  </section>
+
+  <section id="technology">
+    <h2>5. Technology stack</h2>
+    <table>
+      <thead><tr><th>Area</th><th>Technology/version</th><th>Purpose</th><th>Operational meaning</th></tr></thead>
+      <tbody>
+        <tr><td>Backend</td><td>.NET SDK 10.0.203; ASP.NET Core 10.0.7; C# 14</td><td>HTTP APIs, security middleware, health endpoints, and workers.</td><td>Exact SDK and package lines are pinned.</td></tr>
+        <tr><td>Domain/data</td><td>Entity Framework Core 10.0.7; Npgsql 10.0.3</td><td>Domain persistence, schema mapping, and migrations.</td><td>Migrations are generated but security SQL must be reviewed manually.</td></tr>
+        <tr><td>Database</td><td>PostgreSQL 18.4</td><td>Identity, tenant data, devices, licensing, schedules, audit, and queues.</td><td>Forced RLS is a core security boundary, not merely a query convention.</td></tr>
+        <tr><td>Web applications</td><td>React 19.2.8; TypeScript 6.0.2; Vite 8.2.1</td><td>Administration and kiosk UIs.</td><td>No heavy state-management or router dependency; components call APIs directly.</td></tr>
+        <tr><td>Pi runtime</td><td>Self-contained .NET Linux ARM64; Chromium; systemd</td><td>Background synchronization and local kiosk.</td><td>Target is Raspberry Pi OS 64-bit on Pi 4/5.</td></tr>
+        <tr><td>Malware scanning</td><td>ClamAV 1.4.5</td><td>Scans quarantined uploads using the clamd streaming protocol.</td><td>Scanner unavailability keeps content restricted.</td></tr>
+        <tr><td>Cryptography</td><td>ECDSA P-256, ES256, SHA-256, HMAC-SHA256, ASP.NET Data Protection, RFC 6238 TOTP</td><td>Device identity, signed leases, token digests, sensitive payload protection, and MFA.</td><td>Private key files and Data Protection keys must be handled as production secrets.</td></tr>
+        <tr><td>Containers</td><td>Docker Compose</td><td>Local PostgreSQL and ClamAV.</td><td>Compose is a development baseline, not the final production topology.</td></tr>
+        <tr><td>Tests</td><td>xUnit, Testcontainers, Vitest, Testing Library, Playwright 1.61.1, axe-core</td><td>Domain, database, protocol, component, browser, and accessibility checks.</td><td>Mocked browser tests do not replace a live staging journey.</td></tr>
+        <tr><td>CI</td><td>GitHub Actions on Ubuntu 24.04</td><td>Restore, build, test, audit, lint, type-check, browser checks, and documentation verification.</td><td>Workflow exists; remote evidence remains listed as open in project status.</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Dependency policy</h3>
+    <p>NuGet versions are centrally pinned, npm uses an exact lockfile, the .NET SDK is locked by <code>global.json</code>, container tags are exact, warnings are treated as errors, nullable analysis is enabled, and builds are deterministic. This reduces “works on my machine” variation and supply-chain drift.</p>
+  </section>
+
+  <section id="repository">
+    <h2>6. Repository and code organization</h2>
+    <table>
+      <thead><tr><th>Path</th><th>What it contains</th><th>What to understand</th></tr></thead>
+      <tbody>
+        <tr><td><code>apps/admin-web</code></td><td>Authentication views, platform dashboard, tenant operations dashboard, styling, and component tests.</td><td>French-first UI. It exposes the core demonstration workflow but not every API operation.</td></tr>
+        <tr><td><code>apps/player-web</code></td><td>Kiosk player, safe states, playlist rotation, media elements, and tests.</td><td>Polls only the local agent; defaults to Not licensed.</td></tr>
+        <tr><td><code>src/DisplayControl.Api</code></td><td>Startup, dependency injection, security policies/middleware, controllers, desired-state services, and notification worker.</td><td>Main control plane and workflow orchestration.</td></tr>
+        <tr><td><code>src/DisplayControl.Domain</code></td><td>Tenant, identity, device, licence, content, playlist, schedule, and audit state/rules.</td><td>Pure C# rules independent of HTTP and EF implementation details.</td></tr>
+        <tr><td><code>src/DisplayControl.Application</code></td><td>Ports/interfaces, content inspection, manifest codec, lease codec, and claim contracts.</td><td>Defines boundaries used by API, infrastructure, and agent.</td></tr>
+        <tr><td><code>src/DisplayControl.Infrastructure</code></td><td>EF DbContext/migrations, Identity store, PostgreSQL, cryptographic services, storage adapter, ClamAV adapter.</td><td>Implements external/persistent concerns.</td></tr>
+        <tr><td><code>src/DisplayControl.DeviceAgent</code></td><td>Enrollment, certificate rotation, heartbeat, trusted clock, cache, local player server, and inventory.</td><td>Security authority on the Pi.</td></tr>
+        <tr><td><code>tests</code></td><td>Domain, agent, integration, PostgreSQL RLS, crypto, storage, and browser tests.</td><td>Evidence is layered; each test type proves a different boundary.</td></tr>
+        <tr><td><code>deploy</code></td><td>Pi installer/systemd units and PostgreSQL runtime/notification role templates.</td><td>Security-sensitive deployment material.</td></tr>
+        <tr><td><code>scripts</code></td><td>Development keys, platform bootstrap, virtual device, field environment, and Pi bundle scripts.</td><td>Convenience for local/field testing; not a production secret manager.</td></tr>
+        <tr><td><code>docs</code></td><td>Requirements, ADRs, architecture, threats, testing, operations, status, and report plan.</td><td>The repository is documentation-heavy and designed for traceability.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="data" class="page-break">
+    <h2>7. Data model</h2>
+    <p>Most identifiers are application-generated UUIDs. Authorization timestamps are UTC. Licence and schedule windows use an inclusive start and exclusive end: <code>[start, end)</code>. Tenant-owned rows contain a non-null <code>tenant_id</code> even when the tenant could be inferred through another row.</p>
+
+    <h3>Identity and tenancy</h3>
+    <ul>
+      <li><strong>Tenant:</strong> customer organization, slug, timezone, state, and concurrency token.</li>
+      <li><strong>ApplicationUser:</strong> global ASP.NET Identity account with verified email and home-tenant locator.</li>
+      <li><strong>TenantMembership:</strong> user-to-tenant role and lifecycle.</li>
+      <li><strong>Invitation:</strong> target email, intended role, expiry, creator, and token digest.</li>
+      <li><strong>UserSession:</strong> session digest, expiry, tenant binding, MFA state, revocation, and safe client fingerprints.</li>
+      <li><strong>UserMfaSecret/UserRecoveryCode:</strong> protected TOTP secret and hashed one-use recovery codes.</li>
+      <li><strong>IdentityNotification:</strong> protected invitation/reset payload and retry state.</li>
+    </ul>
+
+    <h3>Devices</h3>
+    <ul>
+      <li><strong>Device:</strong> tenant-owned Pi, lifecycle, reported serial, host inventory, version, disk, last seen, and player state.</li>
+      <li><strong>EnrollmentToken:</strong> short-lived, one-use capability with optional expected serial/device binding.</li>
+      <li><strong>DeviceCertificate:</strong> certificate DER, fingerprints, public-key digest, validity, state, and rotation lineage. No private key is stored by the server.</li>
+      <li><strong>DeviceHeartbeat:</strong> sequence, inventory snapshot, applied desired state, player/disk state, public source address, and correlation ID.</li>
+      <li><strong>DeviceNetworkInterface:</strong> latest interface, normalized MAC, local addresses, and observation time.</li>
+    </ul>
+
+    <h3>Licensing</h3>
+    <ul>
+      <li><strong>DeviceLicense:</strong> device, validity window, control state, latest issued lease boundary, transfer destination, and concurrency token.</li>
+      <li><strong>LicenseEvent:</strong> append-oriented lifecycle event with actor, reason, before/after snapshots, and device lineage.</li>
+    </ul>
+
+    <h3>Content and scheduling</h3>
+    <ul>
+      <li><strong>ContentAsset:</strong> logical title/media kind and lifecycle.</li>
+      <li><strong>ContentVersion:</strong> immutable storage reference, byte length, SHA-256, MIME, metadata, scan result, and approval.</li>
+      <li><strong>Playlist/PlaylistVersion/PlaylistItem:</strong> logical playlist plus immutable ordered published version.</li>
+      <li><strong>DeviceGroup/DeviceGroupMember:</strong> tenant group membership.</li>
+      <li><strong>DeviceAssignment/GroupAssignment:</strong> target, playlist version, priority, UTC window, and presentation timezone.</li>
+      <li><strong>DesiredState/DesiredStateAsset:</strong> immutable, device-specific compiled manifest with monotonic version and manifest digest.</li>
+    </ul>
+
+    <h3>Operational records</h3>
+    <ul>
+      <li><strong>TenantAuditEvent:</strong> actor, action, target, outcome, reason, correlation ID, and bounded JSON details.</li>
+      <li><strong>OutboxMessage:</strong> generic transactional-outbox shape.</li>
+      <li><strong>SystemKeyMetadata:</strong> public key metadata and activation/retirement dates.</li>
+    </ul>
+  </section>
+
+  <section id="human-workflows">
+    <h2>8. Human identity workflows</h2>
+
+    <h3>8.1 First platform administrator</h3>
+    <ol class="flow">
+      <li>Deployment generates a high-entropy bootstrap token and stores only its SHA-256 digest in API configuration.</li>
+      <li>An operator calls the platform-bootstrap endpoint with email, display name, password, and token.</li>
+      <li>The endpoint is rate-limited to three attempts per hour per source address.</li>
+      <li>If a platform administrator already exists, bootstrap becomes logically unavailable.</li>
+      <li>The created account must enroll TOTP at first sign-in.</li>
+    </ol>
+
+    <h3>8.2 Session bootstrap and CSRF</h3>
+    <ol class="flow">
+      <li>The browser loads the administration SPA and calls <code>GET /api/v1/session</code>.</li>
+      <li>The API returns anonymous/authenticated session state and issues a protected CSRF cookie/token pair.</li>
+      <li>The React app keeps the returned CSRF token in memory and sends it in <code>X-CSRF-TOKEN</code> for unsafe requests.</li>
+      <li>The global antiforgery filter rejects unsafe cookie-based requests without a valid token before business work occurs.</li>
+    </ol>
+
+    <h3>8.3 Sign-in and MFA</h3>
+    <ol class="flow">
+      <li>Email/password are processed through ASP.NET Core Identity with neutral failure behavior and rate limiting.</li>
+      <li>A server-side <code>UserSession</code> is created; the browser receives an opaque secure cookie.</li>
+      <li>If an administrator has no confirmed MFA secret, the session enters <code>mfa_enrollment</code>.</li>
+      <li>The user registers a generated TOTP secret in an authenticator and confirms a six-digit code.</li>
+      <li>Ten one-use recovery codes are displayed once. Only digests are stored.</li>
+      <li>Future sign-ins enter <code>mfa_pending</code> until TOTP succeeds.</li>
+      <li>Each accepted TOTP time step is persisted so the same code window cannot be replayed.</li>
+    </ol>
+
+    <h3>8.4 Session validation</h3>
+    <p>Authentication is not trusted only because a cookie exists. On each request, middleware verifies the session digest, user, security stamp, expiry, revocation state, home tenant, tenant state, membership state, and current role. A changed role or suspended membership is therefore enforced without waiting for the eight-hour cookie expiry.</p>
+
+    <h3>8.5 Recent MFA</h3>
+    <p>Sensitive actions require an MFA proof no older than ten minutes. The user can enter a current code through the step-up endpoint. Examples include role changes, certificate revocation, licence transfer, recovery-code regeneration, global sign-out, and sensitive platform tenant actions.</p>
+
+    <h3>8.6 Password recovery</h3>
+    <ol class="flow">
+      <li>The forgot-password response is identical whether or not an account exists.</li>
+      <li>For an eligible account, a short-lived reset token is wrapped in a protected notification payload and queued.</li>
+      <li>The notification worker builds an encoded public HTTPS reset link and delivers it via TLS-enabled SMTP.</li>
+      <li>Successful password reset updates the security stamp and revokes prior sessions.</li>
+    </ol>
+  </section>
+
+  <section id="tenant-workflows">
+    <h2>9. Tenant administration workflows</h2>
+    <h3>9.1 Creating a customer</h3>
+    <ol class="flow">
+      <li>A platform administrator with recent MFA submits tenant name, slug, timezone, first-admin email, and first-admin role.</li>
+      <li>The API creates the tenant and a tenant-bound one-use invitation.</li>
+      <li>The raw invitation token is displayed or sent only once; the database stores a digest.</li>
+      <li>The invited administrator accepts the link, chooses a display name/password, then enrolls MFA.</li>
+    </ol>
+
+    <h3>9.2 Tenant lifecycle</h3>
+    <ul>
+      <li><strong>Active:</strong> normal user and device operation.</li>
+      <li><strong>Suspended:</strong> human sessions are revoked and subsequent device authentication/heartbeats are rejected.</li>
+      <li><strong>Archived:</strong> terminal state; the tenant cannot be modified or reactivated.</li>
+    </ul>
+
+    <h3>9.3 Member lifecycle</h3>
+    <p>A tenant administrator can invite members, list them, change roles, suspend/reactivate/remove access, and see MFA state. Role changes and membership restrictions revoke affected sessions. Domain rules preserve lifecycle consistency and project requirements include protecting the last-administrator invariant.</p>
+  </section>
+
+  <section id="device-workflows" class="page-break">
+    <h2>10. Raspberry Pi identity and heartbeat workflows</h2>
+
+    <h3>10.1 Enrollment code creation</h3>
+    <p>A tenant administrator creates a pending device and a high-entropy, one-use enrollment code. The code can be bound to an expected serial number and normally expires after 15 minutes. Only its HMAC-SHA256 digest is persisted.</p>
+
+    <h3>10.2 Device enrollment</h3>
+    <ol class="flow">
+      <li>The Pi reads its serial from <code>/proc/cpuinfo</code>, gathers host/network/disk inventory, and generates an ECDSA P-256 private key locally.</li>
+      <li>The private key is written to an owner-only file. The Pi sends only a certificate-signing request, enrollment code, and inventory.</li>
+      <li>The API rate-limits the request, identifies the tenant from the capability token, checks expiry/use/attempt count/expected serial, and atomically consumes it.</li>
+      <li>The certificate authority issues a client certificate containing tenant and device identity extensions.</li>
+      <li>The response includes the public CA, certificate, server UTC, and pinned licence-verification public key.</li>
+      <li>The Pi verifies the certificate matches its private key, validates the chain against the returned CA, validates the signing public key, and persists state atomically.</li>
+      <li>Only after successful persistence does it delete the temporary enrollment-code file.</li>
+    </ol>
+
+    <h3>10.3 Device authentication</h3>
+    <p>Device API routes require a presented client certificate. Custom middleware rebuilds the chain against the configured device CA, reads the identity extensions, verifies certificate time and cryptographic properties, then verifies the certificate record, device state, and tenant state in PostgreSQL. It creates a device-only principal containing tenant, device, certificate, and <code>mTLS</code> claims.</p>
+
+    <h3>10.4 Certificate rotation</h3>
+    <p>When the current certificate has 30 days or less remaining, the agent creates a separate next private key and CSR. The API issues a replacement certificate and limits overlap of the old certificate. The agent verifies that the CA has not changed and that the certificate matches the pending key. State is written before the key is promoted, and recovery logic handles interruption between those operations.</p>
+
+    <h3>10.5 Heartbeats</h3>
+    <ol class="flow">
+      <li>Every configured interval (normally 30 seconds plus 0–2 seconds jitter), the agent collects fresh inventory.</li>
+      <li>It sends an increasing sequence number, player state, applied desired-state version, disk information, and interface snapshot.</li>
+      <li>The server rejects repeated/out-of-order sequence numbers.</li>
+      <li>The current device row is updated and a heartbeat history row is appended.</li>
+      <li>Network-interface rows are replaced with the current normalized snapshot.</li>
+      <li>The server evaluates licence and desired state, then returns either denial or a signed lease.</li>
+    </ol>
+  </section>
+
+  <section id="licensing">
+    <h2>11. Licensing and offline authorization</h2>
+    <h3>11.1 Licence states</h3>
+    <table>
+      <thead><tr><th>Control/effective state</th><th>Meaning</th><th>Playback result</th></tr></thead>
+      <tbody>
+        <tr><td>Future</td><td>Current server time is before the inclusive licence start.</td><td>Not licensed.</td></tr>
+        <tr><td>Active / enabled</td><td>Inside <code>[validFromUtc, expiresAtUtc)</code> and not administratively restricted.</td><td>Eligible for signed lease.</td></tr>
+        <tr><td>Expired</td><td>Current time is at or after the exclusive end.</td><td>Not licensed.</td></tr>
+        <tr><td>Suspended</td><td>Temporary administrative denial.</td><td>Not licensed after next authoritative contact; existing offline lease remains bounded.</td></tr>
+        <tr><td>Revoked</td><td>Terminal administrative denial.</td><td>No new authorization.</td></tr>
+        <tr><td>Transfer pending</td><td>Moving entitlement while the source may still have an outstanding lease.</td><td>Destination waits until the source lease boundary.</td></tr>
+      </tbody>
+    </table>
+
+    <h3>11.2 Signed offline lease</h3>
+    <p>The server signs leases with ECDSA P-256 using ES256. A lease binds at least:</p>
+    <ul>
+      <li>tenant, device, certificate, and licence identifiers;</li>
+      <li>issue, not-before, and not-after timestamps;</li>
+      <li>desired-state identifier/version and manifest SHA-256, when content exists;</li>
+      <li>a signing-key identifier, algorithm, schema version, and unique token identifier.</li>
+    </ul>
+    <p>The expiry is the earliest applicable boundary:</p>
+    <div class="diagram">lease expiry = minimum of:
+  authenticated server time + configured offline allowance (maximum 24 hours)
+  actual licence expiry
+  device certificate expiry
+  assignment/schedule end, when one exists</div>
+
+    <h3>11.3 Trusted time</h3>
+    <p>The agent anchors time to the most recent authenticated server UTC plus monotonic elapsed time during the process lifetime. It rejects an authenticated server time that rolls back beyond tolerance. If the network fails during the same boot, a valid cached lease can continue to authorize already-active content until expiry.</p>
+    <div class="risk-note"><strong>Deliberate availability trade-off:</strong> after an agent restart with no authenticated server contact, the in-memory monotonic anchor is unavailable. The agent fails closed rather than trusting the Pi wall clock. Cached files may exist, but playback is not authorized until server time is re-established.</div>
+
+    <h3>11.4 Licence transfer</h3>
+    <p>A transfer cannot instantly authorize both source and destination. The destination licence begins no earlier than the latest issued source lease expiry. This prevents a normal transfer operation from creating overlapping authorized playback.</p>
+  </section>
+
+  <section id="content">
+    <h2>12. Content, playlists, and scheduling</h2>
+
+    <h3>12.1 Upload and inspection</h3>
+    <ol class="flow">
+      <li>The content manager selects title, declared media kind, and file.</li>
+      <li>The API enforces configured request/object size limits. The current default object ceiling is 256 MiB.</li>
+      <li>The file inspector streams the bytes, calculates SHA-256, and validates actual signature against the declared kind.</li>
+      <li>PNG/JPEG dimensions are bounded; text must be valid UTF-8 without unsafe control characters; WebP and MP4 signatures are recognized.</li>
+      <li>The private object store writes to a temporary file and atomically publishes it without overwrite.</li>
+      <li>ClamAV scans the stored bytes through a bounded streaming protocol.</li>
+      <li>Clean content becomes a draft; infected content is rejected; scanner failure keeps it quarantined.</li>
+      <li>A content manager must explicitly approve a clean draft before playlist use.</li>
+    </ol>
+
+    <h3>12.2 Private storage</h3>
+    <p>Media bytes are not stored in PostgreSQL and are not placed in a public web root. Code addresses objects using a key made only from normalized tenant and object UUIDs. Browser filenames and device inputs cannot become filesystem paths. The local adapter rejects links/reparse points, length mismatches, oversize streams, and overwrites.</p>
+
+    <h3>12.3 Playlists</h3>
+    <p>A logical playlist is created with ordered items that refer to approved content versions. Publication freezes a playlist version. The immutable snapshot records content identifiers, order, image/text durations, video looping, and presentation data.</p>
+
+    <h3>12.4 Assignments and schedule resolution</h3>
+    <ul>
+      <li>A playlist version can be assigned directly to a device or to a device group.</li>
+      <li>Bounds are optional UTC instants using <code>[start, end)</code>.</li>
+      <li>Priority is between -1000 and 1000.</li>
+      <li>Direct-device assignment always outranks group assignment.</li>
+      <li>Within the same class, highest numeric priority wins.</li>
+      <li>If the two leading active candidates have equal priority, the resolver throws an ambiguity error rather than choosing arbitrarily.</li>
+      <li>Recurring schedules are intentionally outside v1.</li>
+    </ul>
+
+    <h3>12.5 Desired-state compilation</h3>
+    <p>Publishing an assignment verifies that its playlist is immutable/published and that every referenced content version is still clean and approved. The server flattens it into a device-specific desired state with a monotonic version and canonical manifest SHA-256. That digest is later included in the signed lease.</p>
+  </section>
+
+  <section id="synchronization" class="page-break">
+    <h2>13. Synchronization, cache, and playback</h2>
+
+    <h3>13.1 Authorization response</h3>
+    <p>A licensed heartbeat returns server time, retry advice, a signed lease, the licence expiry, and either <code>licensedNoContent</code> or an available desired-state identifier/version. An unlicensed heartbeat returns no lease and a not-licensed desired-state summary.</p>
+
+    <h3>13.2 Agent validation</h3>
+    <ol class="flow">
+      <li>Verify authenticated server time does not move backward unexpectedly.</li>
+      <li>Verify lease key identifier, algorithm, and public key match the pinned verification key.</li>
+      <li>Verify the ES256 signature and tenant/device/certificate/time bindings.</li>
+      <li>Verify the desired-state response matches the lease payload.</li>
+      <li>Persist authorization state atomically before synchronization.</li>
+    </ol>
+
+    <h3>13.3 Manifest and asset synchronization</h3>
+    <ol class="flow">
+      <li>The player enters Synchronizing and its previous manifest is removed from the browser-facing state.</li>
+      <li>The agent requests the authorized manifest through the device API.</li>
+      <li>Manifest size, ID, version, time bounds, asset count/order, unique IDs, media kinds, durations, lengths, and SHA-256 fields are validated.</li>
+      <li>The canonical manifest SHA-256 must match the value signed into the lease.</li>
+      <li>Existing cached objects are rehashed before reuse.</li>
+      <li>Missing assets download into a private staging directory.</li>
+      <li>Interrupted downloads resume using HTTP Range. Content-Range and response length are verified.</li>
+      <li>The agent hashes the entire final object and rejects length/digest mismatch.</li>
+      <li>Verified objects and manifest are atomically promoted; stale inactive manifests are removed.</li>
+      <li>The agent exposes a sanitized in-memory manifest to the local player and records the applied version.</li>
+    </ol>
+
+    <h3>13.4 Cache pressure</h3>
+    <p>The default cache ceiling is 4 GiB with a 256 MiB free-disk reserve. Before download, the agent calculates required object and filesystem space. It removes least-recently-written inactive objects while protecting active hashes. If the replacement cannot fit safely, synchronization fails without partially authorizing it.</p>
+
+    <h3>13.5 Local player</h3>
+    <p>The agent hosts static player files and four loopback endpoints: health, player state, manifest, and authorized asset bytes. Assets are served only when present in the active in-memory mapping; physical paths are never returned to React.</p>
+    <table>
+      <thead><tr><th>Player state</th><th>Meaning</th><th>UI</th></tr></thead>
+      <tbody>
+        <tr><td><code>notLicensed</code></td><td>No valid authorization or an error makes authorization uncertain.</td><td>Exact message “Not licensed”.</td></tr>
+        <tr><td><code>noContent</code></td><td>Licence is valid but no assignment resolves.</td><td>“No content assigned”.</td></tr>
+        <tr><td><code>synchronizing</code></td><td>Authorization exists but active content is not ready.</td><td>Synchronization indicator.</td></tr>
+        <tr><td><code>ready</code></td><td>Manifest and assets are verified and active.</td><td>Ordered image, video, or text playback.</td></tr>
+      </tbody>
+    </table>
+    <p>The React player polls local state every five seconds. Images/text advance by configured duration. Non-looping video advances on its ended event; looping video remains on the same item. If agent state or manifest loading fails, React returns to the safe default.</p>
+  </section>
+
+  <section id="notifications">
+    <h2>14. Email notification workflow</h2>
+    <p>Notification delivery is optional and starts only when enabled by configuration. Invitation and password-reset payloads are protected using an independent ASP.NET Core Data Protection purpose before database insertion.</p>
+    <ol class="flow">
+      <li>The web transaction enqueues a protected notification but its restricted runtime role cannot read notification payloads back.</li>
+      <li>A separate worker connection uses a separately restricted PostgreSQL role.</li>
+      <li>The worker sets an explicit notification-delivery context and claims one due row using <code>FOR UPDATE SKIP LOCKED</code>.</li>
+      <li>It verifies the protection scheme and unprotects only the selected payload.</li>
+      <li>It creates the appropriate invitation/reset message and sends it through TLS-enabled SMTP.</li>
+      <li>Success marks the row processed. Failure stores only a safe error code and schedules progressive retry.</li>
+    </ol>
+    <div class="risk-note"><strong>Status:</strong> the worker and security behavior exist and are tested at code level, but real delivery through a staging SMTP provider is still an open acceptance item.</div>
+  </section>
+
+  <section id="security" class="page-break">
+    <h2>15. Security model and controls</h2>
+
+    <h3>15.1 Defense in depth for tenant isolation</h3>
+    <ol>
+      <li>The browser does not choose an authoritative tenant; the authenticated session does.</li>
+      <li>Authorization compares a tenant route to current membership.</li>
+      <li>Middleware creates a scoped trusted tenant context.</li>
+      <li>Tenant-owned database work runs inside a transaction that uses PostgreSQL <code>set_config('app.tenant_id', ..., true)</code>.</li>
+      <li>The final <code>true</code> makes context transaction-local so pooled connections do not leak tenant state.</li>
+      <li>EF query filters default-deny when context is missing.</li>
+      <li>Forced PostgreSQL RLS policies enforce the same boundary in the database.</li>
+      <li>Composite foreign keys prevent cross-tenant relationships.</li>
+      <li>The runtime database role is neither owner, superuser, nor <code>BYPASSRLS</code>.</li>
+    </ol>
+
+    <h3>15.2 Human security controls</h3>
+    <ul>
+      <li>Invitation-only onboarding; one-use expiring tokens stored as digests.</li>
+      <li>Unique verified email, password hashing configured to 210,000 iterations, and account lockout.</li>
+      <li>TOTP MFA, time-step replay guard, one-use recovery codes, and recent-MFA step-up.</li>
+      <li>Opaque server-side sessions with security-stamp validation, idle/absolute expiry, and revocation.</li>
+      <li>Secure <code>__Host-</code> cookies: HTTPS-only, HttpOnly, SameSite Strict, root path.</li>
+      <li>CSRF protection on unsafe cookie-based routes.</li>
+      <li>Neutral authentication/recovery errors and endpoint-specific rate limits.</li>
+    </ul>
+
+    <h3>15.3 Device security controls</h3>
+    <ul>
+      <li>Human and device identity systems are separate.</li>
+      <li>Enrollment token is only a bootstrap capability, not a long-term credential.</li>
+      <li>Device private key originates and stays on the Pi.</li>
+      <li>Only ECDSA P-256 CSRs/certificates are accepted.</li>
+      <li>mTLS identity is bound to tenant, device, certificate record, device state, and tenant state.</li>
+      <li>Certificate rotation uses proof of possession and bounded overlap.</li>
+      <li>Heartbeat sequence prevents basic replay/out-of-order processing.</li>
+      <li>Signed leases bind authorization to certificate and manifest.</li>
+    </ul>
+
+    <h3>15.4 Content security controls</h3>
+    <ul>
+      <li>Private storage with opaque UUID-derived keys and no public directory.</li>
+      <li>Bounded streaming rather than trusting complete in-memory uploads.</li>
+      <li>Declared type must match magic bytes; invalid UTF-8/control text is rejected.</li>
+      <li>Malware scan is fail-closed; approval is a separate explicit action.</li>
+      <li>Published content/playlist/manifests are immutable.</li>
+      <li>Every downloaded object and manifest is checked with SHA-256.</li>
+      <li>HTML, JavaScript, executable uploads, and scriptable SVG are not supported.</li>
+    </ul>
+
+    <h3>15.5 Web and service hardening</h3>
+    <ul>
+      <li>Security headers: no server banner, HSTS outside development/testing, CSP, <code>nosniff</code>, no-referrer, and restrictive permissions policy.</li>
+      <li>No explicit permissive CORS configuration; the admin design is same-origin.</li>
+      <li>OpenAPI is exposed only in development.</li>
+      <li>API errors use bounded Problem Details rather than raw exception content.</li>
+      <li>Pi services run under restricted accounts with systemd hardening and no extra capabilities.</li>
+      <li>Chromium keeps its sandbox; the launcher does not use <code>--no-sandbox</code> or a remote-debugging port.</li>
+      <li>State/cache code rejects symbolic links and Windows reparse points.</li>
+    </ul>
+  </section>
+
+  <section id="risks" class="page-break">
+    <h2>16. Known vulnerabilities, limitations, and risks</h2>
+    <p>“Vulnerability” should be used carefully. Some items below are exploitable security risks, some are missing production controls, and others are deliberate availability or scope limitations. They should all be understood before a production claim.</p>
+
+    <table>
+      <thead><tr><th>ID / severity</th><th>Risk or limitation</th><th>Why it matters</th><th>Current mitigation</th><th>Recommended action</th></tr></thead>
+      <tbody>
+        <tr><td><strong>R-01</strong><br><span class="status-risk">High</span></td><td>Physical/root compromise of a Pi</td><td>A person with sustained root or physical control can modify the agent/player or copy software-held keys and cached content.</td><td>Managed-appliance assumption, separate accounts, owner-only files, systemd hardening.</td><td>Explicitly accept the threat model or add hardware-backed keys, secure/measured boot, locked OS/admin access, and physical controls.</td></tr>
+        <tr><td><strong>R-02</strong><br><span class="status-risk">High before production</span></td><td>No production environment evidence</td><td>Local behavior does not prove DNS/TLS edge, secret handling, restricted roles, scanning, backups, recovery, or operational isolation.</td><td>Detailed production requirements and deployment role templates exist.</td><td>Build a production-like staging environment and execute release gates.</td></tr>
+        <tr><td><strong>R-03</strong><br><span class="status-risk">High before production</span></td><td>No physical Pi acceptance</td><td>ARM64, HDMI, Wayland/X11, GPU decode, reboot, power loss, clock behavior, disk pressure, and long-running kiosk stability remain unproven.</td><td>Linux ARM64 bundle, installer, services, and field runbook exist.</td><td>Run Pi 4 and Pi 5 field/soak matrix and retain evidence.</td></tr>
+        <tr><td><strong>R-04</strong><br><span class="status-open">Medium</span></td><td>Single-writer local object store</td><td>The filesystem adapter is unsafe for multiple API replicas and depends on deployment volume encryption/backup.</td><td>Immutable/no-overwrite adapter and explicit single-writer documentation.</td><td>Select and test a private S3-compatible production adapter for multi-node/cloud deployments.</td></tr>
+        <tr><td><strong>R-05</strong><br><span class="status-open">Medium</span></td><td>Browser E2E suite intercepts API responses</td><td>It proves UI behavior, request shape, CSRF use, and accessibility for covered views, not the full deployed system.</td><td>Real PostgreSQL/API integration tests exist separately.</td><td>Add end-to-end browser journeys against staging API, PostgreSQL, storage, scanner, email, and mTLS device flows.</td></tr>
+        <tr><td><strong>R-06</strong><br><span class="status-open">Medium</span></td><td>Media validation is not complete codec validation</td><td>MP4 recognition checks the container signature but does not yet prove H.264/AAC profile/level or Pi hardware compatibility. Complex/polyglot files need adversarial testing.</td><td>Allowlist, size/signature checks, SHA-256, private storage, and ClamAV.</td><td>Add isolated ffprobe/codec validation, malicious/polyglot corpus tests, and real Pi playback evidence.</td></tr>
+        <tr><td><strong>R-07</strong><br><span class="status-open">Medium</span></td><td>SMTP is not externally validated</td><td>Invitation/reset usability, TLS/authentication, provider policy, bounce handling, and deliverability are unknown.</td><td>Protected payload, separate worker role, TLS SMTP, retry/backoff.</td><td>Use a staging provider and add dead-letter, retention, metrics, alerts, bounce/support process.</td></tr>
+        <tr><td><strong>R-08</strong><br><span class="status-open">Medium</span></td><td>No production observability or DR proof</td><td>Failures may go unnoticed and data/content may not be recoverable consistently.</td><td>Generic health endpoints and safe structured logs exist.</td><td>Add metrics/log aggregation/alerts, coherent DB+object backups, encrypted retention, and restoration drills.</td></tr>
+        <tr><td><strong>R-09</strong><br><span class="status-open">Medium</span></td><td>No load/capacity evidence</td><td>Expected tenant/device fleet size is still an open decision; 30-second heartbeats and synchronization bursts may overload components.</td><td>Configurable intervals, jitter, bounded requests, and query indexes.</td><td>Freeze capacity assumptions and test above expected peak with k6 or equivalent.</td></tr>
+        <tr><td><strong>R-10</strong><br><span class="status-open">Medium</span></td><td>Multi-instance publication race</td><td>Desired-state version generation uses current maximum + 1; concurrent publication across server instances requires stronger serialization.</td><td>Database uniqueness and local workflow checks; project status already flags publication locking.</td><td>Add transaction/advisory locking or a database sequence and prove concurrency behavior.</td></tr>
+        <tr><td><strong>R-11</strong><br><span class="status-open">Medium</span></td><td>Human-command idempotency is incomplete</td><td>Retries after timeouts can repeat critical mutations.</td><td>Some device operations are replay-safe and concurrency tokens protect stale writes.</td><td>Generalize <code>Idempotency-Key</code> to critical human commands and persist results.</td></tr>
+        <tr><td><strong>R-12</strong><br><span class="status-open">Medium</span></td><td>Signed agent update/rollback incomplete</td><td>Operational updates could become a software supply-chain or availability risk.</td><td>Release archive SHA-256 is verified during field installation; releases use atomic <code>current</code> symlink.</td><td>Add signed metadata, trusted key rotation, rollback protection, staged rollout, and recovery procedure.</td></tr>
+        <tr><td><strong>R-13</strong><br><span class="status-open">Low/Medium</span></td><td>Offline playback fails after cold restart without server time</td><td>A legitimate device may show Not licensed during an outage after reboot even if a lease file has not expired.</td><td>Deliberate fail-closed design avoids trusting an uncertain wall clock.</td><td>Keep as accepted safety behavior or design a hardware-backed trusted-time solution.</td></tr>
+        <tr><td><strong>R-14</strong><br><span class="status-open">Low/Medium</span></td><td>Admin UI does not expose every backend action</td><td>Some certificate/device/licence lifecycle operations require direct API use or additional screens.</td><td>Core demonstration path is available; API contract is richer.</td><td>Complete UX coverage and role/accessibility testing before user acceptance.</td></tr>
+        <tr><td><strong>R-15</strong><br><span class="status-open">Low/Medium</span></td><td>Media size decision inconsistency</td><td>Runtime default is 256 MiB while open project decisions mention a provisional 2 GiB video ceiling.</td><td>Runtime validates configured ceiling between 1 KiB and 2 GiB.</td><td>Freeze per-media limits, align documentation/config/UI, and load-test streaming behavior.</td></tr>
+        <tr><td><strong>R-16</strong><br><span class="status-open">Medium</span></td><td>Security tooling/review not complete</td><td>A green unit/integration suite does not replace secret scanning, SBOM, container scan, DAST, ASVS review, or penetration test.</td><td>Pinned dependencies, npm audit, analyzers, threat model, and security tests.</td><td>Add Gitleaks/Trivy/SBOM/ZAP or equivalents and an independent penetration test.</td></tr>
+        <tr><td><strong>R-17</strong><br><span class="status-open">Configuration critical</span></td><td>TLS client certificate handling depends on correct edge deployment</td><td>Kestrel transports optional client certificates and custom middleware is the authoritative validator. A proxy must preserve the intended certificate trust path without accepting spoofed headers.</td><td>Middleware validates chain, extension, DB record, device, certificate, and tenant. Real Kestrel mTLS tests exist.</td><td>Document/test the final reverse proxy end to end; reject untrusted forwarding headers and verify absent/invalid/revoked certificate behavior.</td></tr>
+        <tr><td><strong>R-18</strong><br><span class="status-open">Low/Medium</span></td><td>Audit coverage and retention require final review</td><td>Audit entities and many controller events exist, but every sensitive success/failure and operational retention/export requirement must be proven.</td><td>Append-oriented audit model with safe bounded details and correlation IDs.</td><td>Build an endpoint/action audit matrix and retention/export/integrity process.</td></tr>
+      </tbody>
+    </table>
+
+    <div class="risk-note critical"><strong>Do not tell stakeholders “the application is secure” without qualification.</strong> A better statement is: “The implementation contains strong security architecture and locally tested controls, but production security still depends on edge configuration, secret management, operational controls, physical Pi assumptions, staging evidence, and independent review.”</div>
+  </section>
+
+  <section id="testing">
+    <h2>17. Testing and evidence</h2>
+    <table>
+      <thead><tr><th>Layer</th><th>What exists</th><th>What it proves</th><th>What it does not prove</th></tr></thead>
+      <tbody>
+        <tr><td>Domain tests</td><td>Tenant/device/content/identity/licence/schedule state-machine tests.</td><td>Pure business rules and exact boundary behavior.</td><td>HTTP, PostgreSQL, OS, or hardware behavior.</td></tr>
+        <tr><td>Agent tests</td><td>Options, atomic state/key handling, inventory, cache verification, corruption rejection, resume.</td><td>Important local failure and integrity behavior.</td><td>Physical Pi, systemd, Chromium, GPU, or network edge.</td></tr>
+        <tr><td>Integration tests</td><td>ASP.NET hosting, PostgreSQL 18/Testcontainers, RLS, migrations, identity flow, crypto, storage.</td><td>Real database and key security boundaries on the test environment.</td><td>Production infrastructure and public TLS/proxy behavior.</td></tr>
+        <tr><td>React tests</td><td>Authentication/dashboard and player safe-state behavior.</td><td>Component-visible behavior in jsdom.</td><td>Real browser rendering and complete backend integration.</td></tr>
+        <tr><td>Playwright/axe</td><td>Five Chrome scenarios for admin requests/accessibility and fail-closed player behavior.</td><td>Real browser behavior for intercepted deterministic states and automated WCAG checks.</td><td>Full live backend or manual keyboard/screen-reader acceptance.</td></tr>
+        <tr><td>Field readiness</td><td>Virtual Windows device and Linux ARM64 package generation.</td><td>Real enrollment/heartbeat/synchronization logic on workstation and publishability.</td><td>Actual Raspberry Pi/hardware acceptance.</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Recorded local result</h3>
+    <ul>
+      <li>85/85 .NET tests: 44 domain, 11 agent, 30 integration.</li>
+      <li>7/7 React tests.</li>
+      <li>5/5 Playwright/axe scenarios.</li>
+      <li>Two Vite builds, lint, and TypeScript type checking recorded successful.</li>
+      <li>PostgreSQL RLS and a real Kestrel HTTPS client-certificate path recorded successful.</li>
+    </ul>
+    <p class="small">Always attach date, commit, environment, command, output, and artifact hash when presenting these as formal evidence. A planned test is not an executed test.</p>
+  </section>
+
+  <section id="deployment" class="page-break">
+    <h2>18. Development and deployment</h2>
+
+    <h3>18.1 Developer prerequisites</h3>
+    <ul>
+      <li>.NET SDK 10.0.203 exactly.</li>
+      <li>Node.js 24 or 25 and npm 11.</li>
+      <li>Docker Desktop/Engine with Compose v2.</li>
+      <li>Git and PowerShell 5.1+ locally.</li>
+    </ul>
+
+    <h3>18.2 Local services and secrets</h3>
+    <p>Docker Compose exposes PostgreSQL and ClamAV only on loopback. The API refuses to start outside testing when essential configuration is missing or unsafe. Required production-style inputs include:</p>
+    <ul>
+      <li>restricted PostgreSQL connection string;</li>
+      <li>absolute Data Protection key directory;</li>
+      <li>at least 32 random bytes of token-digest pepper;</li>
+      <li>device CA PFX and password;</li>
+      <li>encrypted ECDSA licence-signing key and password;</li>
+      <li>absolute private content root;</li>
+      <li>ClamAV endpoint and offline-allowance setting.</li>
+    </ul>
+    <p>The development helper creates local-only security material beneath ignored <code>.data</code>. It is not a production key-management solution.</p>
+
+    <h3>18.3 Database identities</h3>
+    <ul>
+      <li><strong>Migration owner:</strong> owns schema and applies reviewed migrations; unavailable to the web process.</li>
+      <li><strong>Web runtime:</strong> no superuser/owner/BYPASSRLS; narrow table operations; can insert but not read notification payloads.</li>
+      <li><strong>Notification worker:</strong> separate connection/role; only select/update notification rows under a special RLS context.</li>
+      <li>Production backup and monitoring identities must also be separate.</li>
+    </ul>
+
+    <h3>18.4 Pi release and installation</h3>
+    <ol class="flow">
+      <li>Build the React player.</li>
+      <li>Publish the .NET agent self-contained for <code>linux-arm64</code>, embedding player assets.</li>
+      <li>Create a versioned tar.gz and SHA-256 file.</li>
+      <li>On aarch64 Raspberry Pi OS, run the root installer with server URL, trusted digest, version, enrollment-code file, optional field CA, and graphical kiosk user.</li>
+      <li>The installer verifies architecture and artifact SHA-256, creates service identities/directories, installs a root-owned immutable release, and atomically updates <code>/opt/display-control/current</code>.</li>
+      <li>It configures agent state/cache limits and enables agent/kiosk services.</li>
+      <li>The enrollment file is removed after successful enrollment.</li>
+    </ol>
+
+    <h3>18.5 systemd hardening</h3>
+    <p>The agent and kiosk run under different users. Units remove capabilities, enable <code>NoNewPrivileges</code>, restrict writable paths and address families, protect system/home/kernel/control groups, use private temporary directories, apply owner-only umask, and restart failed services. Chromium keeps its normal sandbox.</p>
+
+    <h3>18.6 CI pipeline</h3>
+    <p>The GitHub workflow checks out without persistent credentials, installs pinned SDKs, restores locked dependencies, builds/tests .NET, installs npm dependencies with <code>npm ci --ignore-scripts</code>, runs production dependency audit, lint, type checking, React tests/builds, installs Chromium, runs Playwright, validates documentation traceability, validates Compose configuration, and uploads test/failure artifacts.</p>
+  </section>
+
+  <section id="operations">
+    <h2>19. Operations and troubleshooting</h2>
+
+    <h3>19.1 Health and logs</h3>
+    <ul>
+      <li>API liveness: <code>/_health/live</code>.</li>
+      <li>API readiness: <code>/_health/ready</code>.</li>
+      <li>Pi player health: <code>http://127.0.0.1:8787/player/v1/health</code>.</li>
+      <li>Pi service status: <code>systemctl status display-control-agent display-control-kiosk</code>.</li>
+      <li>Pi logs: <code>journalctl -u display-control-agent -u display-control-kiosk</code>.</li>
+    </ul>
+
+    <h3>19.2 Safe failure behavior</h3>
+    <table>
+      <thead><tr><th>Failure</th><th>Expected behavior</th><th>First checks</th></tr></thead>
+      <tbody>
+        <tr><td>Network/API unavailable</td><td>Continue only already-ready content under a still-valid lease during the same boot; otherwise Not licensed.</td><td>DNS/TLS, server health, Pi time, agent journal.</td></tr>
+        <tr><td>Licence denied</td><td>Clear player manifest/assets and show Not licensed.</td><td>Tenant/device/certificate/licence state and UTC bounds.</td></tr>
+        <tr><td>No assignment</td><td>Show No content assigned under a valid lease.</td><td>Published playlist, assignment target/window/priority, group membership.</td></tr>
+        <tr><td>Scanner unavailable</td><td>Keep content quarantined; no approval/publication.</td><td>ClamAV health, signatures, volume, network endpoint.</td></tr>
+        <tr><td>Partial/corrupt download</td><td>Reject activation; retain safe state; resume valid partial on retry.</td><td>Range response, content length, SHA-256, free disk, device API logs.</td></tr>
+        <tr><td>Disk nearly full</td><td>Remove inactive objects if safe; fail synchronization if reserve cannot be kept.</td><td>Cache ceiling/reserve, active hashes, filesystem capacity.</td></tr>
+        <tr><td>Chromium failure</td><td>systemd restarts kiosk; local agent remains authority.</td><td>Kiosk journal, graphical session, Wayland/X11 variables.</td></tr>
+        <tr><td>Agent failure</td><td>Player local API disappears; React fails to Not licensed; systemd restarts agent.</td><td>Agent journal, state/key permissions, certificate, configuration.</td></tr>
+      </tbody>
+    </table>
+
+    <h3>19.3 Operational alerts to implement</h3>
+    <ul>
+      <li>API/database/scanner/object-storage readiness failure.</li>
+      <li>Heartbeat missing/degraded device fleet.</li>
+      <li>Certificate and licence expiry approaching.</li>
+      <li>Repeated enrollment/authentication/replay rejection.</li>
+      <li>Synchronization errors, digest failures, and cache/disk pressure.</li>
+      <li>Notification backlog, retry age, and permanent failures.</li>
+      <li>Backup age and restoration-test status.</li>
+      <li>Signing/CA/Data Protection key lifecycle.</li>
+    </ul>
+  </section>
+
+  <section id="status" class="page-break">
+    <h2>20. Current status and production gap</h2>
+    <table>
+      <thead><tr><th>Area</th><th>Status</th><th>Explanation</th></tr></thead>
+      <tbody>
+        <tr><td>Architecture and requirements</td><td class="status-good">Implemented/documented</td><td>Charter, requirements, acceptance criteria, traceability, ADRs, architecture, data, API, threat, tests, and operations exist.</td></tr>
+        <tr><td>Core backend</td><td class="status-good">Implemented locally</td><td>Tenant, identity, device, licensing, content, scheduling, audit, and security boundaries are coded.</td></tr>
+        <tr><td>Admin UI</td><td class="status-good">Core workflow implemented</td><td>Platform and tenant dashboards use real API shapes; advanced lifecycle UX is not complete.</td></tr>
+        <tr><td>Agent/player</td><td class="status-good">Software implemented</td><td>Enrollment, mTLS, heartbeat, signed lease, cache, and local playback exist.</td></tr>
+        <tr><td>Automated local verification</td><td class="status-good">Recorded passing</td><td>85 .NET, 7 React, and 5 browser scenarios in latest status record.</td></tr>
+        <tr><td>Physical hardware</td><td class="status-open">Open</td><td>Pi 4/5, monitors, codecs, reboot, outage, clock, disk, and soak acceptance required.</td></tr>
+        <tr><td>Email</td><td class="status-open">Code complete, external proof open</td><td>Real SMTP provider delivery/operations not validated.</td></tr>
+        <tr><td>Staging/production</td><td class="status-risk">Not ready</td><td>Hosting, public TLS, secrets, object storage, monitoring, backups, DR, load, security review, and deployment controls remain.</td></tr>
+        <tr><td>Final report/delivery</td><td class="status-open">Prepared, not finalized</td><td>Final French DOCX/PDF, screenshots, identity metadata, and refreshed evidence remain.</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Recommended order of work</h3>
+    <ol>
+      <li>Build a clean production-like staging environment with public TLS, restricted database roles, private storage, ClamAV, secrets, and SMTP.</li>
+      <li>Deploy a physical Pi 4/5 and execute playback/failure/offline/clock/disk/reboot/soak scenarios.</li>
+      <li>Add live-backend Playwright journeys, manual accessibility, load/endurance, malicious-file testing, and ASVS/penetration review.</li>
+      <li>Implement observability, backup/restore proof, notification operations, signed updates, and controlled rollback.</li>
+      <li>Freeze capacity/media/hosting decisions, refresh traceability evidence, and produce the final report/delivery package.</li>
+    </ol>
+  </section>
+
+  <section id="manager">
+    <h2>21. Manager talking points and questions</h2>
+
+    <h3>60-second presentation</h3>
+    <div class="callout">Display Control is a secure multi-tenant digital-signage platform. Administrators manage customers, users, Raspberry Pi screens, licences, media, playlists, and schedules in a React web application. Each Pi makes an outbound connection to an ASP.NET Core API, authenticates with its own certificate, verifies a signed time-limited licence decision, downloads only approved content, checks every file, and plays it locally through Chromium. The main secure workflow works locally; the remaining work is physical hardware validation and production operations/security evidence.</div>
+
+    <h3>Five points to emphasize</h3>
+    <ol>
+      <li><strong>It is more than a media player:</strong> it manages authorization, identity, tenant isolation, content safety, synchronization, and operational state.</li>
+      <li><strong>The Pi is outbound-only:</strong> customer routers do not need inbound access.</li>
+      <li><strong>Offline is bounded:</strong> cached content cannot be authorized indefinitely; the lease is capped at 24 hours and other earlier boundaries.</li>
+      <li><strong>Security is layered:</strong> roles, MFA, sessions, CSRF, mTLS, RLS, private storage, malware scanning, signatures, hashes, and restricted services work together.</li>
+      <li><strong>Status is honest:</strong> the vertical slice is implemented and locally tested, but physical and production evidence remain required.</li>
+    </ol>
+
+    <h3>Likely questions and suggested answers</h3>
+    <table>
+      <thead><tr><th>Question</th><th>Suggested answer</th></tr></thead>
+      <tbody>
+        <tr><td>Why not microservices?</td><td>A modular monolith reduces deployment and transactional complexity while preserving clear internal boundaries. It is appropriate for the current scope and team size.</td></tr>
+        <tr><td>How are customers isolated?</td><td>The session establishes tenant context; authorization checks it; EF filters it; PostgreSQL forced RLS enforces it; same-tenant foreign keys prevent cross-tenant relationships.</td></tr>
+        <tr><td>What happens when Internet fails?</td><td>Already-ready cached playback can continue only while a signed lease remains valid during the same boot. When authorization cannot be proven, the device shows Not licensed.</td></tr>
+        <tr><td>Can a user copy content URLs?</td><td>Media is private and not in the public web root. The Pi receives only device-scoped resources, and the browser sees only loopback URLs currently authorized by the agent.</td></tr>
+        <tr><td>What if a Pi is stolen?</td><td>Certificates/devices can be revoked, but a determined person with root/physical access may extract software-held credentials/cache. Hardware-backed security is outside the current baseline.</td></tr>
+        <tr><td>Is it production-ready?</td><td>No. The architecture and core workflow are strong, but production infrastructure, physical Pi acceptance, operational controls, load/security testing, and final evidence remain.</td></tr>
+        <tr><td>What is the biggest technical strength?</td><td>The authorization chain: isolated tenant data leads to a signed device/certificate/manifest-bound lease that the Pi independently verifies before exposing local content.</td></tr>
+        <tr><td>What is the biggest project risk?</td><td>Moving from locally verified software to a production-operated system: real hardware, public TLS/edge, secrets, storage, monitoring, backup/restore, capacity, and independent security evidence.</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Things not to claim yet</h3>
+    <ul>
+      <li>“Production-ready,” “penetration-tested,” or “fully secure.”</li>
+      <li>Validated Pi 4/5 GPU/video performance.</li>
+      <li>Validated real-email delivery.</li>
+      <li>Proven production-scale fleet capacity.</li>
+      <li>Proven disaster recovery or zero data loss.</li>
+      <li>Complete WCAG conformance based only on automated axe checks.</li>
+    </ul>
+  </section>
+
+  <section id="glossary" class="page-break">
+    <h2>22. Glossary</h2>
+    <table>
+      <thead><tr><th>Term</th><th>Plain-language meaning</th></tr></thead>
+      <tbody>
+        <tr><td>API</td><td>The server interface used by the admin browser and Pi agent.</td></tr>
+        <tr><td>Tenant</td><td>One isolated customer organization.</td></tr>
+        <tr><td>Multi-tenant</td><td>One platform serving several customers while isolating their data and permissions.</td></tr>
+        <tr><td>Modular monolith</td><td>One deployed backend divided internally into clear functional modules.</td></tr>
+        <tr><td>SPA</td><td>Single-page web application; React updates views without full page reloads.</td></tr>
+        <tr><td>RLS</td><td>PostgreSQL Row-Level Security; database policies that filter/reject rows by tenant context.</td></tr>
+        <tr><td>MFA/TOTP</td><td>Multifactor authentication using rotating six-digit authenticator-app codes.</td></tr>
+        <tr><td>CSRF</td><td>An attack that tricks a signed-in browser into sending an unwanted request; antiforgery tokens defend against it.</td></tr>
+        <tr><td>mTLS</td><td>Mutual TLS; both server and device present cryptographic certificates.</td></tr>
+        <tr><td>CSR</td><td>Certificate-signing request containing a public key and proof; the private key stays on the Pi.</td></tr>
+        <tr><td>ECDSA P-256 / ES256</td><td>Elliptic-curve signing algorithm used for device certificates and licence leases.</td></tr>
+        <tr><td>SHA-256</td><td>A cryptographic digest used to detect changed/corrupt content and identify keys/tokens safely.</td></tr>
+        <tr><td>Lease</td><td>A signed, time-bounded proof that a specific device/certificate may use a specific desired state.</td></tr>
+        <tr><td>Desired state</td><td>The exact immutable playlist manifest selected for one device.</td></tr>
+        <tr><td>Fail closed</td><td>Deny access or playback when the system cannot safely prove authorization.</td></tr>
+        <tr><td>Immutable</td><td>Published bytes/versions are not modified; a new version must be created.</td></tr>
+        <tr><td>Idempotency</td><td>Safely retrying an operation without accidentally applying it twice.</td></tr>
+        <tr><td>Concurrency token</td><td>A value that detects whether a resource changed since a user loaded it.</td></tr>
+        <tr><td>ClamAV</td><td>Antivirus engine used to scan uploaded content.</td></tr>
+        <tr><td>Data Protection</td><td>ASP.NET Core facility used to encrypt/authenticate stored MFA and notification payloads.</td></tr>
+        <tr><td>systemd</td><td>Linux service manager that starts, restricts, monitors, and restarts the Pi agent/kiosk.</td></tr>
+        <tr><td>Wayland/X11</td><td>Linux graphical display systems that Chromium may use on Raspberry Pi OS.</td></tr>
+        <tr><td>CI</td><td>Continuous integration: automated clean build, tests, checks, and retained evidence.</td></tr>
+        <tr><td>DR</td><td>Disaster recovery: restoring service and data after a serious failure.</td></tr>
+        <tr><td>ASVS</td><td>OWASP Application Security Verification Standard, used for structured security review.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>23. Authoritative repository references</h2>
+    <ul>
+      <li><code>README.md</code> — project overview and repository map.</li>
+      <li><code>docs/00-project/ETAT_AVANCEMENT.md</code> — current French status and honest remaining work.</li>
+      <li><code>docs/02-architecture/ARCHITECTURE.md</code> — system/container/request/device architecture.</li>
+      <li><code>docs/02-architecture/DATA_MODEL.md</code> — entities, relationships, and invariants.</li>
+      <li><code>docs/02-architecture/API_CONTRACT.md</code> — route and protocol outline.</li>
+      <li><code>docs/02-architecture/THREAT_MODEL.md</code> — assets, threats, trust boundaries, and controls.</li>
+      <li><code>docs/03-testing/TEST_STRATEGY.md</code> — layered testing and release gates.</li>
+      <li><code>docs/05-operations/DEVELOPMENT.md</code> — local setup and required secrets.</li>
+      <li><code>docs/05-operations/DATABASE_SECURITY.md</code> — PostgreSQL roles and tenant context.</li>
+      <li><code>docs/05-operations/OBJECT_STORAGE.md</code> — private storage boundary and production gate.</li>
+      <li><code>docs/05-operations/PI_PROVISIONING.md</code> — Pi packaging/install/security baseline.</li>
+      <li><code>src/DisplayControl.Api/Program.cs</code> — runtime configuration and security pipeline.</li>
+      <li><code>src/DisplayControl.DeviceAgent</code> — enrollment, heartbeat, lease, cache, and player authority.</li>
+    </ul>
+    <div class="notice"><strong>Final takeaway:</strong> The core product is a controlled chain of trust, not simply a screen player. User authority, tenant-isolated data, approved immutable content, device identity, signed bounded permission, verified cache, and local playback all have to agree before content appears.</div>
+  </section>
+</main>
+</body>
+</html>

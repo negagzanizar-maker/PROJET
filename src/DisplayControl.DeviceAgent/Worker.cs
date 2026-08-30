@@ -46,4 +46,16 @@ internal static partial class AgentLog
 
     [LoggerMessage(1001, LogLevel.Warning, "The device synchronization cycle failed with safe error type {ErrorType}.")]
     public static partial void CycleFailed(ILogger logger, string errorType);
+
+    [LoggerMessage(1002, LogLevel.Warning, "Device enrollment was rejected with HTTP {StatusCode} and code {ErrorCode}.")]
+    public static partial void EnrollmentRejected(ILogger logger, int statusCode, string errorCode);
+
+    [LoggerMessage(1003, LogLevel.Information, "Sending device heartbeat sequence {Sequence}.")]
+    public static partial void HeartbeatStarted(ILogger logger, long sequence);
+
+    [LoggerMessage(1004, LogLevel.Information, "Device heartbeat sequence {Sequence} completed with HTTP {StatusCode}.")]
+    public static partial void HeartbeatCompleted(ILogger logger, long sequence, int statusCode);
+
+    [LoggerMessage(1005, LogLevel.Warning, "Device heartbeat transport failed with safe error type {ErrorType}.")]
+    public static partial void HeartbeatTransportFailed(ILogger logger, string errorType);
 }

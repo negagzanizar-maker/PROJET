@@ -74,10 +74,44 @@ public sealed class AgentStateStoreTests
 
         Assert.Equal("notLicensed", store.Snapshot().Status);
 
-        store.SetLicensedNoContent(Guid.NewGuid());
+        var nowUtc = DateTimeOffset.UtcNow;
+        store.SetLicensedNoContent(Guid.NewGuid(), nowUtc.AddMinutes(1), nowUtc);
 
         Assert.Equal("noContent", store.Snapshot().Status);
         Assert.Equal("No content assigned", store.Snapshot().Message);
+    }
+
+    [Fact]
+    public void PlayerStateRevokesManifestAndAssetsAtLeaseExpiry()
+    {
+        var nowUtc = new DateTimeOffset(2026, 8, 27, 12, 0, 0, TimeSpan.Zero);
+        var timeProvider = new ManualTimeProvider(nowUtc);
+        var store = new PlayerStateStore(timeProvider);
+        var contentVersionId = Guid.NewGuid();
+        store.SetReady(
+            Guid.NewGuid(),
+            new ActivePlayerManifest(
+                Guid.NewGuid(),
+                1,
+                [new ActivePlayerAsset(contentVersionId, 0, "png", 5_000, false)]),
+            new Dictionary<Guid, PlayerAssetFile>
+            {
+                [contentVersionId] = new("asset.png", "image/png", 4, new string('a', 64))
+            },
+            nowUtc.AddSeconds(5),
+            nowUtc);
+
+        Assert.Equal("ready", store.Snapshot().Status);
+        Assert.NotNull(store.ManifestSnapshot());
+        Assert.True(store.TryResolveAsset(contentVersionId, out _));
+
+        timeProvider.RollbackUtc(TimeSpan.FromDays(1));
+        timeProvider.Advance(TimeSpan.FromSeconds(5));
+
+        Assert.Equal("notLicensed", store.Snapshot().Status);
+        Assert.Equal("lease_expired", store.Snapshot().SafeReasonCode);
+        Assert.Null(store.ManifestSnapshot());
+        Assert.False(store.TryResolveAsset(contentVersionId, out _));
     }
 
     [Fact]
@@ -143,4 +177,24 @@ public sealed class AgentStateStoreTests
         null,
         null,
         null);
+}
+
+internal sealed class ManualTimeProvider(DateTimeOffset utcNow) : TimeProvider
+{
+    private DateTimeOffset _utcNow = utcNow;
+    private long _timestamp = utcNow.UtcTicks;
+
+    public override DateTimeOffset GetUtcNow() => _utcNow;
+
+    public override long GetTimestamp() => _timestamp;
+
+    public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+
+    public void Advance(TimeSpan duration)
+    {
+        _utcNow = _utcNow.Add(duration);
+        _timestamp += duration.Ticks;
+    }
+
+    public void RollbackUtc(TimeSpan duration) => _utcNow = _utcNow.Subtract(duration);
 }

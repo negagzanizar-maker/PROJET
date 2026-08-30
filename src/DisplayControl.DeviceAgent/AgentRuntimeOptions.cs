@@ -16,6 +16,8 @@ public sealed class AgentRuntimeOptions
 
     public string? DevelopmentSerialNumber { get; init; }
 
+    public bool CheckServerCertificateRevocation { get; init; } = true;
+
     public long MaximumCacheBytes { get; init; } = 4_294_967_296;
 
     public long MinimumFreeDiskBytes { get; init; } = 268_435_456;

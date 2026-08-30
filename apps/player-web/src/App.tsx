@@ -20,13 +20,15 @@ export type PlayerPresentation =
   | { kind: 'notLicensed' }
   | { kind: 'noContent'; deviceName?: string }
   | { kind: 'synchronizing'; progress?: number }
-  | { kind: 'ready'; manifest: PlayerManifest }
+  | { kind: 'ready'; manifest: PlayerManifest; authorizationRemainingMilliseconds?: number }
 
 interface PlayerStateResponse {
   status: 'notLicensed' | 'noContent' | 'synchronizing' | 'ready'
   message: string
   deviceId?: string | null
   desiredStateVersion?: number | null
+  authorizationExpiresAtUtc?: string | null
+  authorizationRemainingMilliseconds?: number | null
 }
 
 const safeDefault: PlayerPresentation = { kind: 'notLicensed' }
@@ -56,7 +58,17 @@ async function loadPresentation(): Promise<PlayerPresentation> {
     throw new Error('player-manifest-invalid')
   }
 
-  return { kind: 'ready', manifest }
+  if (!state.authorizationExpiresAtUtc ||
+      !state.authorizationRemainingMilliseconds ||
+      state.authorizationRemainingMilliseconds <= 0) {
+    return safeDefault
+  }
+
+  return {
+    kind: 'ready',
+    manifest,
+    authorizationRemainingMilliseconds: state.authorizationRemainingMilliseconds,
+  }
 }
 
 function PlainTextAsset({ url }: { url: string }) {
@@ -146,6 +158,20 @@ function App({ presentation }: AppProps) {
   }, [presentation])
 
   const current = presentation ?? agentPresentation
+  const activeAuthorizationRemaining = presentation === undefined && agentPresentation.kind === 'ready'
+    ? agentPresentation.authorizationRemainingMilliseconds
+    : undefined
+
+  useEffect(() => {
+    if (!activeAuthorizationRemaining) return
+
+    const expiryTimer = window.setTimeout(
+      () => setAgentPresentation(safeDefault),
+      activeAuthorizationRemaining,
+    )
+    return () => window.clearTimeout(expiryTimer)
+  }, [activeAuthorizationRemaining])
+
   if (current.kind === 'ready') {
     return <PlaylistPlayer manifest={current.manifest} />
   }

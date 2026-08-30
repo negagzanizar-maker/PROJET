@@ -27,6 +27,7 @@ public sealed class AuthenticationController(
     UserSessionService userSessionService,
     UniformPasswordFailureService uniformPasswordFailure,
     ISecureTokenService secureTokenService,
+    TenantSecurityAuditService securityAudit,
     TimeProvider timeProvider) : ControllerBase
 {
     [HttpPost("sign-in")]
@@ -61,6 +62,7 @@ public sealed class AuthenticationController(
             !user.EmailConfirmed ||
             !string.Equals(user.NormalizedEmail, normalizedEmail, StringComparison.Ordinal))
         {
+            await AuditKnownTenantAsync(user, "failure", "invalid_credentials", cancellationToken);
             return InvalidCredentials();
         }
 
@@ -82,6 +84,16 @@ public sealed class AuthenticationController(
                     cancellationToken);
                 if (tenant is null || membership is null)
                 {
+                    securityAudit.Add(
+                        tenantId,
+                        user.Id,
+                        "identity.authentication.sign_in",
+                        "user",
+                        user.Id,
+                        "failure",
+                        "tenant_or_membership_inactive");
+                    await dbContext.SaveChangesAsync(cancellationToken);
+                    await tenantTransaction.CommitAsync(cancellationToken);
                     return InvalidCredentials();
                 }
             }
@@ -102,6 +114,19 @@ public sealed class AuthenticationController(
                 : confirmedMfa
                     ? SessionClaimTypes.MfaPendingStage
                     : SessionClaimTypes.MfaEnrollmentStage;
+
+            if (user.HomeTenantId is Guid auditTenantId)
+            {
+                securityAudit.Add(
+                    auditTenantId,
+                    user.Id,
+                    "identity.authentication.sign_in",
+                    "user",
+                    user.Id,
+                    "success",
+                    null,
+                    new { authenticationStage });
+            }
 
             var issuedSession = await userSessionService.CreateAsync(
                 user,
@@ -157,6 +182,10 @@ public sealed class AuthenticationController(
             if (session is not null && session.RevokedAtUtc is null)
             {
                 session.Revoke("user_sign_out", timeProvider.GetUtcNow());
+                AddCurrentTenantAudit(
+                    "identity.session.signed_out",
+                    session.UserId,
+                    new { allSessions = false });
                 await dbContext.SaveChangesAsync(cancellationToken);
             }
         }
@@ -184,6 +213,10 @@ public sealed class AuthenticationController(
         {
             session.Revoke("user_sign_out_all", nowUtc);
         }
+        AddCurrentTenantAudit(
+            "identity.session.signed_out",
+            userId,
+            new { allSessions = true, revokedSessions = activeSessions.Count });
 
         var user = await userManager.FindByIdAsync(userId.ToString())
             ?? throw new InvalidOperationException("Authenticated user no longer exists.");
@@ -196,6 +229,39 @@ public sealed class AuthenticationController(
         await dbContext.SaveChangesAsync(cancellationToken);
         await HttpContext.SignOutAsync(IdentityConstants.ApplicationScheme);
         return NoContent();
+    }
+
+    private async Task AuditKnownTenantAsync(
+        ApplicationUser user,
+        string outcome,
+        string reasonCode,
+        CancellationToken cancellationToken)
+    {
+        if (user.HomeTenantId is not Guid tenantId)
+        {
+            return;
+        }
+
+        tenantContext.SetFromTrustedBoundary(tenantId);
+        await using var transaction = await dbContext.BeginTenantTransactionAsync(tenantId, cancellationToken);
+        securityAudit.Add(
+            tenantId,
+            user.Id,
+            "identity.authentication.sign_in",
+            "user",
+            user.Id,
+            outcome,
+            reasonCode);
+        await dbContext.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+    }
+
+    private void AddCurrentTenantAudit(string action, Guid actorId, object details)
+    {
+        if (Guid.TryParse(User.FindFirstValue(SessionClaimTypes.TenantId), out var tenantId))
+        {
+            securityAudit.Add(tenantId, actorId, action, "user", actorId, "success", null, details);
+        }
     }
 
     private static UnauthorizedObjectResult InvalidCredentials() => new(new ProblemDetails

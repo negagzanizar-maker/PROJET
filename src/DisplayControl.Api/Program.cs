@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
 using DisplayControl.Api.Notifications;
+using DisplayControl.Api.Operations;
 using DisplayControl.Api.Scheduling;
 using DisplayControl.Api.Security;
 using DisplayControl.Application.Content;
@@ -65,6 +66,7 @@ if (string.IsNullOrWhiteSpace(databaseConnectionString))
 }
 
 builder.Services.AddHttpContextAccessor();
+builder.Services.AddMemoryCache(options => options.SizeLimit = 10_000);
 builder.Services.AddScoped<ScopedTenantContext>();
 builder.Services.AddScoped<ICurrentTenant>(services => services.GetRequiredService<ScopedTenantContext>());
 builder.Services.AddDbContext<DisplayControlDbContext>(options => options.UseNpgsql(databaseConnectionString));
@@ -202,16 +204,19 @@ if (offlineAllowanceHours is < 1 or > 24)
 builder.Services.AddSingleton(new DeviceProtocolOptions(TimeSpan.FromHours(offlineAllowanceHours)));
 builder.Services.AddScoped<UserSessionService>();
 builder.Services.AddScoped<UniformPasswordFailureService>();
+builder.Services.AddScoped<TenantSecurityAuditService>();
+builder.Services.AddScoped<AuthenticationAccountRateLimitFilter>();
+builder.Services.AddSingleton<AuthenticationAccountRateLimiter>();
 builder.Services.AddSingleton<IAuthorizationHandler, TenantRouteRequirement>();
 
 builder.Services
     .AddIdentityCore<ApplicationUser>(options =>
     {
-        options.Password.RequiredLength = 12;
-        options.Password.RequiredUniqueChars = 4;
-        options.Password.RequireDigit = true;
-        options.Password.RequireLowercase = true;
-        options.Password.RequireUppercase = true;
+        options.Password.RequiredLength = 15;
+        options.Password.RequiredUniqueChars = 1;
+        options.Password.RequireDigit = false;
+        options.Password.RequireLowercase = false;
+        options.Password.RequireUppercase = false;
         options.Password.RequireNonAlphanumeric = false;
         options.Lockout.AllowedForNewUsers = true;
         options.Lockout.MaxFailedAccessAttempts = 5;
@@ -225,6 +230,7 @@ builder.Services
     .AddSignInManager()
     .AddClaimsPrincipalFactory<ApplicationClaimsPrincipalFactory>()
     .AddEntityFrameworkStores<DisplayControlDbContext>()
+    .AddPasswordValidator<CommonPasswordValidator>()
     .AddTokenProvider<DataProtectorTokenProvider<ApplicationUser>>(TokenOptions.DefaultProvider);
 
 builder.Services.Configure<DataProtectionTokenProviderOptions>(options =>
@@ -363,12 +369,22 @@ builder.Services.AddScoped<DesiredStateResolver>();
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            "global",
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 2_000,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+                AutoReplenishment = true
+            }));
     options.AddPolicy("authentication", context =>
         RateLimitPartition.GetSlidingWindowLimiter(
             context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
             _ => new SlidingWindowRateLimiterOptions
             {
-                PermitLimit = 10,
+                PermitLimit = 30,
                 Window = TimeSpan.FromMinutes(5),
                 SegmentsPerWindow = 5,
                 QueueLimit = 0,
@@ -409,12 +425,17 @@ builder.Services.AddAntiforgery(options =>
 
 builder.Services.AddScoped<ApiAntiforgeryFilter>();
 builder.Services
-    .AddControllers(options => options.Filters.AddService<ApiAntiforgeryFilter>())
+    .AddControllers(options =>
+    {
+        options.Filters.AddService<ApiAntiforgeryFilter>();
+        options.Filters.AddService<AuthenticationAccountRateLimitFilter>();
+    })
     .AddJsonOptions(options => options.JsonSerializerOptions.Converters.Add(
         new JsonStringEnumConverter(JsonNamingPolicy.CamelCase, allowIntegerValues: false)));
 builder.Services.AddProblemDetails();
 builder.Services.AddOpenApi("v1");
-builder.Services.AddHealthChecks();
+builder.Services.AddHealthChecks()
+    .AddCheck<DependencyReadinessHealthCheck>("dependencies", tags: ["ready"]);
 
 var app = builder.Build();
 
@@ -478,6 +499,7 @@ app.MapHealthChecks("/_health/live", new HealthCheckOptions
 
 app.MapHealthChecks("/_health/ready", new HealthCheckOptions
 {
+    Predicate = registration => registration.Tags.Contains("ready"),
     ResponseWriter = static async (context, report) =>
     {
         context.Response.ContentType = "application/json";

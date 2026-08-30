@@ -19,7 +19,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Build-PiFieldTes
 
 The command creates the ignored directory `artifacts/pi-field-test` containing:
 
-- `display-control-pi-linux-arm64-0.1.3-field-test.tar.gz`;
+- `display-control-pi-linux-arm64-0.1.5-field-test.tar.gz`;
 - its `.sha256` file;
 - the `deploy-pi` installer directory.
 
@@ -129,9 +129,9 @@ On the Pi, replace the server address and desktop username. Read the digest from
 
 ```bash
 sudo ./deploy-pi/install.sh \
-  --artifact ./display-control-pi-linux-arm64-0.1.3-field-test.tar.gz \
+  --artifact ./display-control-pi-linux-arm64-0.1.5-field-test.tar.gz \
   --sha256 'PASTE_THE_64_CHARACTER_SHA256' \
-  --version '0.1.3-field-test' \
+  --version '0.1.5-field-test' \
   --server 'https://192.168.1.25:7443' \
   --server-ca './field-test-server-ca.crt' \
   --enrollment-code-file './enrollment-code.txt' \

@@ -28,9 +28,9 @@ Le dépôt contient trois produits principaux :
 | Affichage sur écran | Réalisé localement | Vidéo, image et texte ; états non licencié, aucun contenu, synchronisation et erreur |
 | Notifications e-mail | Code réalisé | Worker SMTP sécurisé présent ; validation avec un vrai SMTP encore nécessaire |
 | Kit de test Raspberry Pi | Réalisé sur poste | Archive autonome Linux ARM64, installateur, HTTPS LAN, prise en charge Wayland/X11 et guide de test pas à pas |
-| Vérification automatisée | Réalisé localement | 88 tests .NET, 8 tests React et 5 tests Playwright/axe réussis, aucun échec |
+| Vérification automatisée | Réalisé localement | 102 tests .NET, 8 tests React et 5 tests Playwright/axe réussis, aucun échec |
 | Validation Raspberry Pi physique | À faire | Essais écran, accélération vidéo, redémarrage, coupure réseau, horloge et endurance |
-| Mise en production | À faire | Infrastructure, secrets, supervision, sauvegarde, restauration et tests de charge |
+| Mise en production | Base mono-instance durcie | Validation stricte au démarrage, service systemd, contrôle du rôle SQL et scripts de sauvegarde présents ; infrastructure, secrets, supervision, restauration et charge restent à prouver |
 | Rapport final français | Préparé, non finalisé | Plan et journal disponibles ; DOCX/PDF final, captures et métadonnées restent à produire |
 
 ## 3. Travaux réalisés et méthode employée
@@ -91,6 +91,7 @@ Le dépôt contient trois produits principaux :
 - L’agent C# conserve de manière atomique son identité, sa clé, son certificat et son état de synchronisation afin de résister à un arrêt brutal.
 - Il envoie les battements de cœur, récupère le bail signé et télécharge les ressources manquantes.
 - Les téléchargements interrompus reprennent avec HTTP Range. La longueur, `Content-Range` et le SHA-256 sont vérifiés avant une promotion atomique dans le cache.
+- Le cache applique un plafond de 4 Gio et une réserve disque de 256 Mio par défaut, supprime les objets inactifs les plus anciens et protège les objets en cours de lecture lors d'un remplacement.
 - Le lecteur React local affiche les vidéos, images et textes, ainsi que des écrans explicites pour les états non licencié, sans contenu, en synchronisation et en erreur.
 - Les unités systemd séparent l’agent et le kiosque sous des comptes différents. Chromium conserve son bac à sable ; le script d’installation vérifie le condensat de l’artefact.
 
@@ -147,6 +148,16 @@ Playwright `1.61.1` et `@axe-core/playwright` `4.12.1` sont ajoutés comme dépe
 - Les audits npm et NuGet ne signalent aucune vulnérabilité connue.
 - Le paquet Raspberry Pi autonome `0.1.3-field-test` contient 362 entrées, le lecteur embarqué et aucun secret détecté ; son SHA-256 est `6cf4183ed67777bfc24b16f803c2c3f5add746dd40726642906bbc838f6efe38`.
 
+### 4.3 Mise à jour du 30 août 2026 — durcissement de préparation production
+
+- Les 102 tests .NET réussissent : 44 domaine, 12 agent et 46 intégration.
+- En environnement Production, l'API refuse désormais les hôtes génériques, PostgreSQL sans vérification de certificat, les fichiers de clés/certificats absents et les chemins sensibles qui se chevauchent.
+- Les clés ASP.NET Core Data Protection persistées sont chiffrées par un certificat distinct ; la readiness refuse un rôle PostgreSQL superutilisateur ou `BYPASSRLS`.
+- Le worker SMTP applique un délai maximal borné, les réponses exposent l'identifiant de corrélation et les ressources frontales hachées utilisent un cache HTTP immuable.
+- Une base de déploiement Linux mono-instance, un contrôle SQL du rôle runtime et des scripts de sauvegarde/vérification ont été ajoutés dans `deploy/production` et `deploy/postgres`.
+- Le paquet Raspberry Pi autonome `0.1.5-field-test` contient 362 entrées, l'exécutable ARM64 et le lecteur embarqué ; son SHA-256 est `002d85a716882d206c70da680d3829a7ddec3244e6c4cbc21407f803db9c43d4`.
+- Ces protections réduisent les erreurs de déploiement mais ne remplacent pas les preuves externes : TLS/DNS réels, SMTP, supervision, charge, restauration isolée et revue de sécurité.
+
 ## 5. Parcours fonctionnel actuellement possible
 
 Le parcours logiciel prévu et couvert localement est le suivant :
@@ -171,7 +182,7 @@ Le parcours logiciel prévu et couvert localement est le suivant :
 - Vérifier la récupération réelle du numéro de série, des interfaces, des MAC et IP sur Raspberry Pi OS.
 - Tester vidéo, image et texte en mode kiosque, y compris l’accélération matérielle et les différentes résolutions d’écran.
 - Tester redémarrage, coupure électrique, coupure Internet, réseau lent, dérive de l’horloge et expiration de licence hors ligne.
-- Tester le remplissage du disque et terminer la collecte automatique du cache sous pression disque.
+- Tester sur le Pi le remplissage du disque et confirmer la collecte automatique déjà implémentée sous pression disque.
 - Exécuter un test d’endurance prolongé.
 - Valider l’envoi des invitations et réinitialisations avec un véritable serveur SMTP de recette.
 
@@ -190,9 +201,9 @@ Le parcours logiciel prévu et couvert localement est le suivant :
 - Réaliser les tests manuels d’accessibilité clavier/lecteur d’écran et corriger les écarts WCAG.
 - Ajouter des tests de charge et d’endurance pour connexions, battements de cœur, synchronisations et compilation des états désirés.
 - Effectuer une revue ASVS, des tests de fichiers malveillants et un test d’intrusion indépendant avant production.
-- Ajouter une stratégie de rétention, une file d’échec définitif et la supervision des notifications SMTP.
+- Valider en recette la rétention et l’état d’échec définitif déjà implémentés, puis ajouter métriques et alertes SMTP.
 - Généraliser `Idempotency-Key` aux autres commandes humaines critiques et verrouiller la publication concurrente si plusieurs instances serveur sont utilisées.
-- Finaliser la collecte du cache, les seuils d’espace disque et la télémétrie associée.
+- Valider physiquement les seuils du cache et ajouter la télémétrie/alerte disque de production.
 - Finaliser le mécanisme de mise à jour signée de l’agent Raspberry Pi et son retour arrière.
 - Rafraîchir les fichiers de preuves de test après les dernières fonctions plateforme/notifications et exécuter les mêmes contrôles dans la CI distante.
 

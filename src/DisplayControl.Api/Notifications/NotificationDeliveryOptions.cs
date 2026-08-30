@@ -10,7 +10,8 @@ public sealed record NotificationDeliveryOptions(
     string? SmtpUsername,
     string? SmtpPassword,
     MailAddress FromAddress,
-    int MaximumAttempts)
+    int MaximumAttempts,
+    TimeSpan SmtpTimeout)
 {
     public static NotificationDeliveryOptions FromConfiguration(IConfiguration configuration)
     {
@@ -20,6 +21,7 @@ public sealed record NotificationDeliveryOptions(
         var from = configuration["Notifications:Smtp:FromAddress"];
         var port = configuration.GetValue<int?>("Notifications:Smtp:Port") ?? 587;
         var maximumAttempts = configuration.GetValue<int?>("Notifications:MaximumAttempts") ?? 8;
+        var smtpTimeoutSeconds = configuration.GetValue<int?>("Notifications:Smtp:TimeoutSeconds") ?? 30;
         if (string.IsNullOrWhiteSpace(database) ||
             !Uri.TryCreate(publicBaseUrl, UriKind.Absolute, out var publicBaseUri) ||
             publicBaseUri.Scheme != Uri.UriSchemeHttps ||
@@ -27,6 +29,7 @@ public sealed record NotificationDeliveryOptions(
             host.Length > 253 ||
             port is < 1 or > 65535 ||
             maximumAttempts is < 1 or > 100 ||
+            smtpTimeoutSeconds is < 5 or > 120 ||
             string.IsNullOrWhiteSpace(from))
         {
             throw new InvalidOperationException(
@@ -58,6 +61,7 @@ public sealed record NotificationDeliveryOptions(
             username,
             password,
             fromAddress,
-            maximumAttempts);
+            maximumAttempts,
+            TimeSpan.FromSeconds(smtpTimeoutSeconds));
     }
 }

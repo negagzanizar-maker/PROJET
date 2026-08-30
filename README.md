@@ -52,6 +52,7 @@ Exact patch versions will be pinned in lockfiles and SDK configuration when Goal
 - [PostgreSQL security baseline](docs/05-operations/DATABASE_SECURITY.md)
 - [Raspberry Pi provisioning](docs/05-operations/PI_PROVISIONING.md)
 - [Tomorrow's Raspberry Pi field-test runbook](docs/05-operations/FIELD_TEST_TOMORROW.md)
+- [Single-node production deployment baseline](deploy/production/README.md)
 - [Dependency register](docs/00-project/DEPENDENCIES.md)
 
 ## Repository layout

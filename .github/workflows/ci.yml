@@ -42,8 +42,17 @@ jobs:
       - name: Restore .NET dependencies
         run: dotnet restore DisplayControl.slnx --locked-mode
 
+      - name: Audit .NET dependencies
+        run: dotnet list DisplayControl.slnx package --vulnerable --include-transitive --no-restore
+
       - name: Build .NET
         run: dotnet build DisplayControl.slnx --configuration Release --no-restore
+
+      - name: Verify .NET formatting and migration drift
+        run: |
+          dotnet format DisplayControl.slnx --verify-no-changes --no-restore
+          dotnet tool restore
+          dotnet ef migrations has-pending-model-changes --project src/DisplayControl.Infrastructure/DisplayControl.Infrastructure.csproj --context DisplayControlDbContext --configuration Release --no-build
 
       - name: Test .NET
         run: dotnet test DisplayControl.slnx --configuration Release --no-build --no-restore --logger "trx;LogFilePrefix=tests" --results-directory artifacts/test-results
@@ -73,6 +82,13 @@ jobs:
       - name: Verify documentation and traceability
         shell: pwsh
         run: ./scripts/verify-docs.ps1
+
+      - name: Validate deployment scripts
+        shell: pwsh
+        run: ./scripts/verify-powershell.ps1
+
+      - name: Validate Linux shell scripts
+        run: bash -n deploy/pi/*.sh deploy/production/*.sh
 
       - name: Validate local service definition
         env:

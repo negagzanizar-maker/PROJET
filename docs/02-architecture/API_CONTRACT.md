@@ -4,7 +4,7 @@
 
 This document began as the Goal 1 contract outline and now distinguishes implemented routes from planned completion work. It is not a substitute for the generated OpenAPI document. Payload details may evolve only if they preserve the requirements and receive contract tests.
 
-The implemented vertical slice covers human session/authentication/MFA, tenant members, invitation creation/acceptance, devices and enrollment codes, certificates, licences including transfer, contents and approval, playlists and publication, direct-device assignments, audit queries, device enrollment/heartbeat/rotation, desired-state manifests and authorized asset streaming. Platform tenant administration, device-group APIs, scheduled/group assignments, invitation listing/revocation, generated-client compatibility and synchronization-event ingestion remain planned.
+The implemented vertical slice covers human session/authentication/MFA, platform tenant administration, tenant members, invitation creation/listing/revocation/acceptance, devices and enrollment codes, device groups, certificates, licences including transfer, contents and approval, playlists and publication, direct and scheduled/group assignments, audit queries, device enrollment/heartbeat/rotation, desired-state manifests and authorized asset streaming. Generated-client compatibility and synchronization-event ingestion remain planned.
 
 ## 2. Surfaces and authentication
 

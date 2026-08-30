@@ -119,6 +119,16 @@ public sealed class IdentityNotificationDeliveryWorker(
             };
             await SendAsync(mail, cancellationToken);
         }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            safeErrorCode = "smtp_delivery_timeout";
+            LogDeliveryFailure(
+                logger,
+                row.Id,
+                safeErrorCode,
+                row.AttemptCount + 1,
+                null);
+        }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             safeErrorCode = exception switch
@@ -178,6 +188,8 @@ public sealed class IdentityNotificationDeliveryWorker(
 
     private async Task SendAsync(NotificationMail notification, CancellationToken cancellationToken)
     {
+        using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutSource.CancelAfter(options.SmtpTimeout);
         using var message = new MailMessage
         {
             From = options.FromAddress,
@@ -201,7 +213,7 @@ public sealed class IdentityNotificationDeliveryWorker(
             client.Credentials = new NetworkCredential(options.SmtpUsername, options.SmtpPassword);
         }
 
-        await client.SendMailAsync(message, cancellationToken);
+        await client.SendMailAsync(message, timeoutSource.Token);
     }
 
     private sealed record NotificationRow(

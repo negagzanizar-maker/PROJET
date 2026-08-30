@@ -55,6 +55,7 @@ public sealed class NotificationSecurityTests
     {
         var defaults = NotificationDeliveryOptions.FromConfiguration(CreateNotificationConfiguration());
         Assert.Equal(8, defaults.MaximumAttempts);
+        Assert.Equal(TimeSpan.FromSeconds(30), defaults.SmtpTimeout);
 
         var invalid = CreateNotificationConfiguration(new Dictionary<string, string?>
         {

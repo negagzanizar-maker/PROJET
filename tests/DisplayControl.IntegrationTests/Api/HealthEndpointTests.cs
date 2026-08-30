@@ -26,6 +26,7 @@ public sealed class HealthEndpointTests : IClassFixture<WebApplicationFactory<Pr
         response.EnsureSuccessStatusCode();
         Assert.Equal("{\"status\":\"healthy\"}", body);
         Assert.Equal("nosniff", response.Headers.GetValues("X-Content-Type-Options").Single());
+        Assert.False(string.IsNullOrWhiteSpace(response.Headers.GetValues("X-Correlation-ID").Single()));
         Assert.Equal("no-store", response.Headers.CacheControl?.ToString());
         Assert.DoesNotContain("version", body, StringComparison.OrdinalIgnoreCase);
     }

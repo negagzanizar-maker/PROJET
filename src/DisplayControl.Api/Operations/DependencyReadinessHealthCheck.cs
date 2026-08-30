@@ -5,6 +5,7 @@ using DisplayControl.Application.Content;
 using DisplayControl.Application.Security;
 using DisplayControl.Application.Storage;
 using DisplayControl.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Npgsql;
 
@@ -141,7 +142,32 @@ public sealed class DatabaseReadinessDependency(IServiceScopeFactory scopeFactor
     {
         await using var scope = scopeFactory.CreateAsyncScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<DisplayControlDbContext>();
-        return await dbContext.Database.CanConnectAsync(cancellationToken);
+        if (!await dbContext.Database.CanConnectAsync(cancellationToken))
+        {
+            return false;
+        }
+
+        await using var command = dbContext.Database.GetDbConnection().CreateCommand();
+        command.CommandText =
+            """
+            SELECT NOT role_definition.rolsuper
+               AND NOT role_definition.rolbypassrls
+               AND NOT EXISTS (
+                   SELECT 1
+                   FROM pg_class AS relation
+                   JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace
+                   WHERE namespace.nspname = 'app'
+                     AND relation.relkind IN ('r', 'p')
+                     AND relation.relowner = role_definition.oid)
+            FROM pg_roles AS role_definition
+            WHERE role_definition.rolname = current_user
+            """;
+        if (command.Connection?.State != System.Data.ConnectionState.Open)
+        {
+            await command.Connection!.OpenAsync(cancellationToken);
+        }
+
+        return await command.ExecuteScalarAsync(cancellationToken) is true;
     }
 }
 

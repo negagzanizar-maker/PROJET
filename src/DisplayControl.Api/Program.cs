@@ -1,11 +1,12 @@
 using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
-using DisplayControl.Api.Notifications;
-using DisplayControl.Api.Operations;
 using DisplayControl.Api.Devices;
 using DisplayControl.Api.Identity;
+using DisplayControl.Api.Notifications;
+using DisplayControl.Api.Operations;
 using DisplayControl.Api.Scheduling;
 using DisplayControl.Api.Security;
 using DisplayControl.Application.Content;
@@ -74,6 +75,11 @@ if (string.IsNullOrWhiteSpace(databaseConnectionString))
     databaseConnectionString = "Host=127.0.0.1;Database=display_control_testing_unconnected;Username=unused;Password=unused";
 }
 
+if (builder.Environment.IsProduction())
+{
+    ProductionConfigurationValidator.Validate(builder.Configuration, databaseConnectionString);
+}
+
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddMemoryCache(options => options.SizeLimit = 10_000);
 builder.Services.AddScoped<ScopedTenantContext>();
@@ -95,6 +101,25 @@ else
     }
 
     dataProtection.PersistKeysToFileSystem(new DirectoryInfo(keyDirectory));
+    if (builder.Environment.IsProduction())
+    {
+        var certificate = X509CertificateLoader.LoadPkcs12FromFile(
+            builder.Configuration["Security:DataProtectionCertificate:PfxPath"]!,
+            builder.Configuration["Security:DataProtectionCertificate:PfxPassword"],
+            X509KeyStorageFlags.EphemeralKeySet);
+        using var dataProtectionPrivateKey = certificate.GetRSAPrivateKey();
+        if (dataProtectionPrivateKey is null ||
+            DateTimeOffset.UtcNow < certificate.NotBefore.ToUniversalTime() ||
+            DateTimeOffset.UtcNow >= certificate.NotAfter.ToUniversalTime())
+        {
+            certificate.Dispose();
+            throw new InvalidOperationException(
+                "The production Data Protection certificate must contain a currently valid private key.");
+        }
+
+        builder.Services.AddSingleton(certificate);
+        dataProtection.ProtectKeysWithCertificate(certificate);
+    }
 }
 
 var pepperValue = builder.Configuration["Security:TokenDigestPepperBase64"];
@@ -477,6 +502,7 @@ app.Use(async (context, next) =>
     {
         var headers = context.Response.Headers;
         headers.XContentTypeOptions = "nosniff";
+        headers["X-Correlation-ID"] = context.TraceIdentifier;
         headers["Referrer-Policy"] = "no-referrer";
         headers.Append("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()");
         var isApiRequest = context.Request.Path.StartsWithSegments("/api", StringComparison.OrdinalIgnoreCase) ||
@@ -488,7 +514,10 @@ app.Use(async (context, next) =>
             isApiRequest
                 ? "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
                 : "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
-        headers.CacheControl = "no-store";
+        headers.CacheControl = context.Request.Path.StartsWithSegments("/assets", StringComparison.OrdinalIgnoreCase) &&
+            context.Response.StatusCode == StatusCodes.Status200OK
+                ? "public,max-age=31536000,immutable"
+                : "no-store";
         return Task.CompletedTask;
     });
 

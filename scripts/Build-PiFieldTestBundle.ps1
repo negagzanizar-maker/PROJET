@@ -1,6 +1,6 @@
 param(
     [ValidatePattern('^[0-9A-Za-z._-]{1,64}$')]
-    [string] $Version = '0.1.3-field-test',
+    [string] $Version = '0.1.5-field-test',
 
     [string] $ServerCaCertificatePath
 )

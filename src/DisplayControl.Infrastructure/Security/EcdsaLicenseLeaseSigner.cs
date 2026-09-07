@@ -10,7 +10,7 @@ public sealed class EcdsaLicenseLeaseSigner : ILicenseLeaseSigner, IDisposable
     private readonly ECDsa _privateKey;
     private readonly object _signingLock = new();
 
-    public EcdsaLicenseLeaseSigner(ECDsa privateKey)
+    public EcdsaLicenseLeaseSigner(ECDsa privateKey, IReadOnlyList<string>? additionalPublicKeys = null)
     {
         ArgumentNullException.ThrowIfNull(privateKey);
         var parameters = privateKey.ExportParameters(includePrivateParameters: false);
@@ -27,9 +27,42 @@ public sealed class EcdsaLicenseLeaseSigner : ILicenseLeaseSigner, IDisposable
             keyId,
             "ES256",
             PemEncoding.WriteString("PUBLIC KEY", publicKeyBytes));
+        if (additionalPublicKeys is { Count: > 3 })
+        {
+            throw new ArgumentException("At most three additional verification keys are supported.", nameof(additionalPublicKeys));
+        }
+
+        var keys = new List<LicenseLeaseVerificationKey> { VerificationKey };
+        foreach (var pem in additionalPublicKeys ?? [])
+        {
+            if (!pem.StartsWith("-----BEGIN PUBLIC KEY-----", StringComparison.Ordinal))
+            {
+                throw new ArgumentException("Additional verification keys must be public SPKI PEM keys.", nameof(additionalPublicKeys));
+            }
+
+            using var key = ECDsa.Create();
+            key.ImportFromPem(pem);
+            if (key.ExportParameters(false).Curve.Oid.Value != ECCurve.NamedCurves.nistP256.Oid.Value)
+            {
+                throw new ArgumentException("Verification keys must use P-256.", nameof(additionalPublicKeys));
+            }
+
+            var bytes = key.ExportSubjectPublicKeyInfo();
+            var id = Convert.ToHexString(SHA256.HashData(bytes).AsSpan(0, 16)).ToLowerInvariant();
+            if (keys.Any(existing => existing.KeyId == id))
+            {
+                throw new ArgumentException("Verification keys must be distinct.", nameof(additionalPublicKeys));
+            }
+
+            keys.Add(new LicenseLeaseVerificationKey(id, "ES256", key.ExportSubjectPublicKeyInfoPem()));
+        }
+
+        VerificationKeys = keys.AsReadOnly();
     }
 
     public LicenseLeaseVerificationKey VerificationKey { get; }
+
+    public IReadOnlyList<LicenseLeaseVerificationKey> VerificationKeys { get; }
 
     public SignedLicenseLease Issue(
         Guid tenantId,

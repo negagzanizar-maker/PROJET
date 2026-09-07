@@ -104,13 +104,20 @@ public sealed class MfaController(
 
         var rawRecoveryCodes = CreateRecoveryCodes(user.Id, nowUtc);
 
-        var completion = await CompleteMfaAsync(
-            user,
-            nowUtc,
-            cancellationToken,
-            auditAction: "identity.mfa.enrollment_confirmed");
-        await userManager.ResetAccessFailedCountAsync(user);
-        return Ok(new MfaCompletionResponse(completion.Status, rawRecoveryCodes));
+        try
+        {
+            var completion = await CompleteMfaAsync(
+                user,
+                nowUtc,
+                cancellationToken,
+                auditAction: "identity.mfa.enrollment_confirmed");
+            await userManager.ResetAccessFailedCountAsync(user);
+            return Ok(new MfaCompletionResponse(completion.Status, rawRecoveryCodes));
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return MfaFailed();
+        }
     }
 
     [HttpPost("totp")]
@@ -304,7 +311,8 @@ public sealed class MfaController(
         var session = await dbContext.UserSessions.SingleAsync(
             value => value.SessionKeyDigest == sessionDigest && value.UserId == user.Id,
             cancellationToken);
-        session.MarkMfaSatisfied(nowUtc);
+        var rotatedSessionKey = secureTokenService.Generate();
+        session.RotateAfterMfa(rotatedSessionKey.Digest, nowUtc);
 
         TenantMembership? membership = null;
         if (user.HomeTenantId is not null)
@@ -320,13 +328,20 @@ public sealed class MfaController(
         var principal = await userSessionService.CreatePrincipalAsync(
             user,
             membership,
-            rawSessionKey,
+            rotatedSessionKey.Value,
             SessionClaimTypes.FullStage,
             mfaSatisfied: true);
         await HttpContext.SignInAsync(
             IdentityConstants.ApplicationScheme,
             principal,
             UserSessionService.CreateAuthenticationProperties(session.CreatedAtUtc, session.AbsoluteExpiresAtUtc));
+        Response.Cookies.Delete("__Host-dc.csrf", new CookieOptions
+        {
+            HttpOnly = true,
+            Secure = true,
+            SameSite = SameSiteMode.Strict,
+            Path = "/"
+        });
         return new MfaCompletionResponse(status, null);
     }
 

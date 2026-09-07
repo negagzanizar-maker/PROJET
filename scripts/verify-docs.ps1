@@ -33,7 +33,7 @@ if ($missing.Count -gt 0 -or $extra.Count -gt 0) {
 
 $brokenLinks = @()
 $markdownFiles = Get-ChildItem -LiteralPath $repositoryRoot -Recurse -Filter '*.md' -File |
-    Where-Object { $_.FullName -notmatch '[\\/]node_modules[\\/]' }
+    Where-Object { $_.FullName -notmatch '[\\/](node_modules|artifacts|bin|obj|\.data|\.git)[\\/]' }
 
 foreach ($file in $markdownFiles) {
     $content = Get-Content -LiteralPath $file.FullName -Raw

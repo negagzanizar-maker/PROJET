@@ -1,7 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 using System.Security.Claims;
 using System.Text.Json;
-
+using DisplayControl.Api.Pagination;
 using DisplayControl.Api.Scheduling;
 using DisplayControl.Api.Security;
 using DisplayControl.Application.Content;
@@ -27,14 +27,20 @@ public sealed class DeviceAssignmentsController(
     public async Task<ActionResult<IReadOnlyList<DeviceAssignmentResponse>>> List(
         Guid tenantId,
         Guid deviceId,
-        CancellationToken cancellationToken)
+        [FromQuery, Range(1, 100)] int limit = 50,
+        [FromQuery] string? cursor = null,
+        CancellationToken cancellationToken = default)
     {
+        if (!CursorPage.TryReadOffset(cursor, out var offset)) return BadRequest("Invalid pagination cursor.");
         var assignments = await dbContext.DeviceAssignments.AsNoTracking()
             .Where(value => value.DeviceId == deviceId)
             .OrderByDescending(value => value.PublishedAtUtc)
-            .Take(50)
+            .ThenBy(value => value.Id)
+            .Skip(offset)
+            .Take(limit + 1)
             .ToListAsync(cancellationToken);
-        return Ok(assignments.Select(ToResponse).ToArray());
+        CursorPage.WriteNext(Response, offset, limit, assignments.Count);
+        return Ok(assignments.Take(limit).Select(ToResponse).ToArray());
     }
 
     [HttpPost]
@@ -45,6 +51,7 @@ public sealed class DeviceAssignmentsController(
         PublishDeviceAssignmentRequest request,
         CancellationToken cancellationToken)
     {
+        await MutationLocks.SchedulingAsync(dbContext, tenantId, cancellationToken);
         var device = await dbContext.Devices.AsNoTracking().SingleOrDefaultAsync(
             value => value.Id == deviceId,
             cancellationToken);

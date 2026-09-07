@@ -32,7 +32,7 @@ fi
 
 if [[ ! -f "${artifact}" || ! -f "${enrollment_source}" ||
       ! "${expected_sha256}" =~ ^[0-9a-fA-F]{64}$ ||
-      ! "${release_version}" =~ ^[0-9A-Za-z._-]{1,64}$ ||
+      ! "${release_version}" =~ ^[0-9A-Za-z][0-9A-Za-z._-]{0,63}$ ||
       ! "${server_url}" =~ ^https://[A-Za-z0-9.-]+(:[0-9]{1,5})?/?$ ||
       ! "${kiosk_user}" =~ ^[a-z_][a-z0-9_-]*[$]?$ ]]; then
   usage
@@ -90,6 +90,7 @@ if [[ -n "${server_ca}" ]]; then
   update-ca-certificates >/dev/null
 fi
 
+previous_release="$(readlink -f /opt/display-control/current 2>/dev/null || true)"
 release_directory="/opt/display-control/releases/${release_version}"
 if [[ -e "${release_directory}" ]]; then
   echo "Release directory already exists; refusing to overwrite it." >&2
@@ -97,10 +98,12 @@ if [[ -e "${release_directory}" ]]; then
 fi
 
 staging_directory="/opt/display-control/releases/.staging-${release_version}-$$"
+previous_environment="/etc/display-control/.agent.env-previous-$$"
 cleanup() {
   if [[ -d "${staging_directory}" ]]; then
     rm -rf --one-file-system -- "${staging_directory}"
   fi
+  rm -f -- "${previous_environment}"
 }
 trap cleanup EXIT
 install -d -o root -g root -m 0755 "${staging_directory}"
@@ -110,11 +113,13 @@ if [[ ! -f "${staging_directory}/DisplayControl.DeviceAgent" || -L "${staging_di
   exit 1
 fi
 chmod 0755 "${staging_directory}/DisplayControl.DeviceAgent"
+printf '%s\n' "${release_version}" > "${staging_directory}/release-version"
 chown -R root:root "${staging_directory}"
 mv -- "${staging_directory}" "${release_directory}"
-ln -s "${release_directory}" /opt/display-control/.current-new
-mv -Tf /opt/display-control/.current-new /opt/display-control/current
 
+if [[ -f /etc/display-control/agent.env ]]; then
+  cp --preserve=mode,ownership /etc/display-control/agent.env "${previous_environment}"
+fi
 install -o display-control-agent -g display-control-agent -m 0600 "${enrollment_source}" /var/lib/display-control/enrollment-code
 
 cat > /etc/display-control/agent.env <<EOF
@@ -143,7 +148,35 @@ chown root:root /etc/systemd/system/display-control-kiosk.service
 chmod 0644 /etc/systemd/system/display-control-kiosk.service
 
 systemctl daemon-reload
-systemctl enable --now display-control-agent.service
-systemctl enable --now display-control-kiosk.service
+activation_link="/opt/display-control/.current-new-$$"
+ln -s "${release_directory}" "${activation_link}"
+mv -Tf "${activation_link}" /opt/display-control/current
+systemctl enable display-control-agent.service display-control-kiosk.service
+activation_succeeded=false
+if systemctl restart display-control-agent.service; then
+  for attempt in {1..45}; do
+    health="$(curl --fail --silent --max-time 2 http://127.0.0.1:8787/player/v1/health || true)"
+    if [[ "${health}" == *"\"releaseVersion\":\"${release_version}\""* ]]; then
+      activation_succeeded=true
+      break
+    fi
+    sleep 2
+  done
+fi
+if [[ "${activation_succeeded}" != true ]]; then
+  echo "New agent did not become healthy; rolling back activation." >&2
+  if [[ -f "${previous_environment}" ]]; then
+    mv -f -- "${previous_environment}" /etc/display-control/agent.env
+  fi
+  if [[ "${previous_release}" == /opt/display-control/releases/* && -d "${previous_release}" ]]; then
+    ln -s "${previous_release}" "${activation_link}"
+    mv -Tf "${activation_link}" /opt/display-control/current
+    systemctl restart display-control-agent.service
+  else
+    systemctl stop display-control-agent.service
+  fi
+  exit 1
+fi
+systemctl restart display-control-kiosk.service
 
 echo "Display Control ${release_version} installed. The enrollment secret will be deleted after successful enrollment."

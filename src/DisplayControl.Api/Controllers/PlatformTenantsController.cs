@@ -1,7 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 using System.Security.Claims;
 using System.Text.Json;
-
+using DisplayControl.Api.Pagination;
 using DisplayControl.Api.Security;
 using DisplayControl.Application.Security;
 using DisplayControl.Domain.Identity;
@@ -32,16 +32,20 @@ public sealed class PlatformTenantsController(
     [Authorize(Policy = AuthorizationPolicies.PlatformAdministrator)]
     public async Task<ActionResult<IReadOnlyList<PlatformTenantResponse>>> List(
         [FromQuery, Range(1, 200)] int limit = 100,
+        [FromQuery] string? cursor = null,
         CancellationToken cancellationToken = default)
     {
+        if (!CursorPage.TryReadOffset(cursor, out var offset)) return BadRequest("Invalid cursor.");
         await using var transaction = await dbContext.BeginPlatformCatalogTransactionAsync(cancellationToken);
         var tenants = await dbContext.Tenants.AsNoTracking()
             .OrderBy(value => value.Name)
             .ThenBy(value => value.Id)
-            .Take(limit)
+            .Skip(offset)
+            .Take(limit + 1)
             .ToListAsync(cancellationToken);
+        CursorPage.WriteNext(Response, offset, limit, tenants.Count);
         await transaction.CommitAsync(cancellationToken);
-        return Ok(tenants.Select(ToResponse).ToArray());
+        return Ok(tenants.Take(limit).Select(ToResponse).ToArray());
     }
 
     [HttpPost]

@@ -1,3 +1,4 @@
+using DisplayControl.Api.Pagination;
 using DisplayControl.Api.Security;
 using DisplayControl.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authorization;
@@ -16,8 +17,10 @@ public sealed class AuditEventsController(DisplayControlDbContext dbContext) : C
         Guid tenantId,
         [FromQuery] DateTimeOffset? beforeUtc = null,
         [FromQuery, System.ComponentModel.DataAnnotations.Range(1, 200)] int limit = 100,
+        [FromQuery] string? cursor = null,
         CancellationToken cancellationToken = default)
     {
+        if (!CursorPage.TryReadOffset(cursor, out var pageOffset)) return BadRequest("Invalid cursor.");
         if (beforeUtc is { Offset: var offset } && offset != TimeSpan.Zero)
         {
             return BadRequest(new ProblemDetails
@@ -38,7 +41,8 @@ public sealed class AuditEventsController(DisplayControlDbContext dbContext) : C
         var rows = await query
             .OrderByDescending(value => value.OccurredAtUtc)
             .ThenByDescending(value => value.Id)
-            .Take(limit)
+            .Skip(pageOffset)
+            .Take(limit + 1)
             .Select(value => new AuditEventResponse(
                 value.Id,
                 value.ActorType,
@@ -51,7 +55,8 @@ public sealed class AuditEventsController(DisplayControlDbContext dbContext) : C
                 value.CorrelationId,
                 value.OccurredAtUtc))
             .ToListAsync(cancellationToken);
-        return Ok(rows);
+        CursorPage.WriteNext(Response, pageOffset, limit, rows.Count);
+        return Ok(rows.Take(limit).ToArray());
     }
 }
 

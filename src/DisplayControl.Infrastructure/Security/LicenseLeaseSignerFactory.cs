@@ -4,7 +4,8 @@ namespace DisplayControl.Infrastructure.Security;
 
 public static class LicenseLeaseSignerFactory
 {
-    public static EcdsaLicenseLeaseSigner LoadFileBacked(string privateKeyPath, string password)
+    public static EcdsaLicenseLeaseSigner LoadFileBacked(string privateKeyPath, string password,
+        IReadOnlyList<string>? verificationPublicKeyPaths = null)
     {
         if (string.IsNullOrWhiteSpace(privateKeyPath) || !Path.IsPathFullyQualified(privateKeyPath))
         {
@@ -27,7 +28,30 @@ public static class LicenseLeaseSignerFactory
         try
         {
             privateKey.ImportFromEncryptedPem(File.ReadAllText(fullPath), password);
-            return new EcdsaLicenseLeaseSigner(privateKey);
+            if (verificationPublicKeyPaths is { Count: > 3 })
+            {
+                throw new InvalidOperationException("At most three additional verification keys are supported.");
+            }
+
+            var publicKeys = new List<string>();
+            foreach (var path in verificationPublicKeyPaths ?? [])
+            {
+                if (!Path.IsPathFullyQualified(path))
+                {
+                    throw new InvalidOperationException("Verification key paths must be absolute.");
+                }
+
+                var publicFile = new FileInfo(path);
+                if (!publicFile.Exists || publicFile.Length > 4096 || publicFile.LinkTarget is not null ||
+                    publicFile.Attributes.HasFlag(FileAttributes.ReparsePoint))
+                {
+                    throw new InvalidOperationException("Verification key file is missing, too large, or a reparse point.");
+                }
+
+                publicKeys.Add(File.ReadAllText(path));
+            }
+
+            return new EcdsaLicenseLeaseSigner(privateKey, publicKeys);
         }
         catch
         {

@@ -8,6 +8,19 @@ afterEach(() => {
 })
 
 describe('fail-closed player presentation', () => {
+  it('keeps a slow state request singular and aborts it when the player unmounts', async () => {
+    vi.useFakeTimers()
+    const fetchMock = vi.fn().mockImplementation(() => new Promise<Response>(() => {}))
+    vi.stubGlobal('fetch', fetchMock)
+    const view = render(<App />)
+    await act(async () => vi.advanceTimersByTime(10_000))
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const signal = fetchMock.mock.calls[0][1].signal as AbortSignal
+    expect(signal.aborted).toBe(false)
+    view.unmount()
+    expect(signal.aborted).toBe(true)
+  })
+
   it('shows the exact unlicensed message by default', () => {
     render(<App />)
 

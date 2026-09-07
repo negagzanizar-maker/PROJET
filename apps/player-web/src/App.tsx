@@ -37,8 +37,10 @@ export interface AppProps {
   presentation?: PlayerPresentation
 }
 
-async function loadPresentation(): Promise<PlayerPresentation> {
+async function loadPresentation(signal: AbortSignal): Promise<PlayerPresentation> {
+  const started = performance.now()
   const response = await fetch('/player/v1/state', {
+    signal,
     cache: 'no-store',
     credentials: 'same-origin',
   })
@@ -49,6 +51,7 @@ async function loadPresentation(): Promise<PlayerPresentation> {
   if (state.status !== 'ready') return safeDefault
 
   const manifestResponse = await fetch('/player/v1/manifest', {
+    signal,
     cache: 'no-store',
     credentials: 'same-origin',
   })
@@ -58,7 +61,8 @@ async function loadPresentation(): Promise<PlayerPresentation> {
     throw new Error('player-manifest-invalid')
   }
 
-  if (!state.authorizationExpiresAtUtc ||
+  const remaining = (state.authorizationRemainingMilliseconds ?? 0) - (performance.now() - started)
+  if (!state.authorizationExpiresAtUtc || !Number.isFinite(remaining) || remaining <= 0 ||
       !state.authorizationRemainingMilliseconds ||
       state.authorizationRemainingMilliseconds <= 0) {
     return safeDefault
@@ -67,11 +71,11 @@ async function loadPresentation(): Promise<PlayerPresentation> {
   return {
     kind: 'ready',
     manifest,
-    authorizationRemainingMilliseconds: state.authorizationRemainingMilliseconds,
+    authorizationRemainingMilliseconds: remaining,
   }
 }
 
-function PlainTextAsset({ url }: { url: string }) {
+function PlainTextAsset({ url, onFailure, onPlaying }: { url: string; onFailure: () => void; onPlaying: () => void }) {
   const [text, setText] = useState('')
 
   useEffect(() => {
@@ -81,10 +85,10 @@ function PlainTextAsset({ url }: { url: string }) {
         if (!response.ok) throw new Error('text-asset-unavailable')
         return response.text()
       })
-      .then(setText)
-      .catch(() => setText(''))
+      .then((value) => { if (!abort.signal.aborted) { setText(value); onPlaying() } })
+      .catch(() => { if (!abort.signal.aborted) onFailure() })
     return () => abort.abort()
-  }, [url])
+  }, [url, onFailure, onPlaying])
 
   return <pre className="text-content">{text}</pre>
 }
@@ -92,12 +96,29 @@ function PlainTextAsset({ url }: { url: string }) {
 function PlaylistPlayer({ manifest }: { manifest: PlayerManifest }) {
   const [position, setPosition] = useState(0)
   const [cycle, setCycle] = useState(0)
+  const [failed, setFailed] = useState(false)
   const assets = [...manifest.assets].sort((left, right) => left.position - right.position)
   const asset = assets[position % assets.length]
   const advance = useCallback(() => {
+    setFailed(false)
     setPosition((current) => (current + 1) % assets.length)
     setCycle((current) => current + 1)
   }, [assets.length])
+  const report = useCallback((status: 'playing' | 'error', errorCode: string | null) => {
+    void fetch('/player/v1/playback-report', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ desiredStateId: manifest.desiredStateId, version: manifest.version,
+        contentVersionId: asset.contentVersionId, status, errorCode }),
+    }).catch(() => { /* Heartbeat connectivity is independent of playback. */ })
+  }, [manifest.desiredStateId, manifest.version, asset.contentVersionId])
+  const fail = useCallback(() => { setFailed(true); report('error', 'media_error') }, [report])
+  const playing = useCallback(() => report('playing', null), [report])
+
+  useEffect(() => {
+    if (!failed) return
+    const retry = window.setTimeout(advance, 5_000)
+    return () => window.clearTimeout(retry)
+  }, [failed, advance])
 
   useEffect(() => {
     setPosition(0)
@@ -112,7 +133,7 @@ function PlaylistPlayer({ manifest }: { manifest: PlayerManifest }) {
 
   let media
   if (asset.mediaKind === 'plainText') {
-    media = <PlainTextAsset url={asset.url} />
+    media = <PlainTextAsset key={`${asset.contentVersionId}-${cycle}`} url={asset.url} onFailure={fail} onPlaying={playing} />
   } else if (asset.mediaKind === 'mp4') {
     media = (
       <video
@@ -124,13 +145,16 @@ function PlaylistPlayer({ manifest }: { manifest: PlayerManifest }) {
         playsInline
         loop={asset.loopVideo}
         onEnded={asset.loopVideo ? undefined : advance}
+        onError={fail}
+        onStalled={fail}
+        onPlaying={playing}
       />
     )
   } else {
-    media = <img className="visual-content" src={asset.url} alt="" />
+    media = <img key={`${asset.contentVersionId}-${cycle}`} className="visual-content" src={asset.url} alt="" onError={fail} onLoad={playing} />
   }
 
-  return <main className="playback-screen">{media}</main>
+  return <main className="playback-screen">{failed ? <p role="status">Media unavailable. Retrying…</p> : media}</main>
 }
 
 function App({ presentation }: AppProps) {
@@ -140,20 +164,27 @@ function App({ presentation }: AppProps) {
     if (presentation) return
 
     let active = true
+    let poll: number | undefined
+    let abort = new AbortController()
     const load = async () => {
+      abort = new AbortController()
+      const timeout = window.setTimeout(() => abort.abort(), 15_000)
       try {
-        const next = await loadPresentation()
+        const next = await loadPresentation(abort.signal)
         if (active) setAgentPresentation(next)
       } catch {
         if (active) setAgentPresentation(safeDefault)
+      } finally {
+        window.clearTimeout(timeout)
+        if (active) poll = window.setTimeout(() => void load(), 5_000)
       }
     }
 
     void load()
-    const poll = window.setInterval(() => void load(), 5_000)
     return () => {
       active = false
-      window.clearInterval(poll)
+      abort.abort()
+      window.clearTimeout(poll)
     }
   }, [presentation])
 
@@ -170,7 +201,7 @@ function App({ presentation }: AppProps) {
       activeAuthorizationRemaining,
     )
     return () => window.clearTimeout(expiryTimer)
-  }, [activeAuthorizationRemaining])
+  }, [activeAuthorizationRemaining, agentPresentation])
 
   if (current.kind === 'ready') {
     return <PlaylistPlayer manifest={current.manifest} />

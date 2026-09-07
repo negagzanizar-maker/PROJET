@@ -6,6 +6,8 @@ public interface ILicenseLeaseSigner
 {
     public LicenseLeaseVerificationKey VerificationKey { get; }
 
+    public IReadOnlyList<LicenseLeaseVerificationKey> VerificationKeys => [VerificationKey];
+
     public SignedLicenseLease Issue(
         Guid tenantId,
         Guid deviceId,

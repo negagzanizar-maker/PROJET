@@ -1,7 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 using System.Security.Claims;
 using System.Text.Json;
-
+using DisplayControl.Api.Pagination;
 using DisplayControl.Api.Scheduling;
 using DisplayControl.Api.Security;
 using DisplayControl.Application.Content;
@@ -26,12 +26,19 @@ public sealed class DeviceGroupsController(
     [Authorize(Policy = AuthorizationPolicies.TenantViewer)]
     public async Task<ActionResult<IReadOnlyList<DeviceGroupResponse>>> List(
         Guid tenantId,
-        CancellationToken cancellationToken)
+        [FromQuery, Range(1, 100)] int limit = 50,
+        [FromQuery] string? cursor = null,
+        CancellationToken cancellationToken = default)
     {
+        if (!CursorPage.TryReadOffset(cursor, out var offset)) return BadRequest("Invalid pagination cursor.");
         var groups = await dbContext.DeviceGroups.AsNoTracking()
             .OrderBy(value => value.Name)
-            .Take(200)
+            .ThenBy(value => value.Id)
+            .Skip(offset)
+            .Take(limit + 1)
             .ToListAsync(cancellationToken);
+        CursorPage.WriteNext(Response, offset, limit, groups.Count);
+        groups = groups.Take(limit).ToList();
         var groupIds = groups.Select(group => group.Id).ToArray();
         var members = await dbContext.DeviceGroupMembers.AsNoTracking()
             .Where(value => groupIds.Contains(value.DeviceGroupId))
@@ -155,6 +162,7 @@ public sealed class DeviceGroupsController(
         ReplaceDeviceGroupMembersRequest request,
         CancellationToken cancellationToken)
     {
+        await MutationLocks.SchedulingAsync(dbContext, tenantId, cancellationToken);
         var group = await dbContext.DeviceGroups.SingleOrDefaultAsync(value => value.Id == groupId, cancellationToken);
         if (group is null)
         {
@@ -222,7 +230,7 @@ public sealed class DeviceGroupsController(
             actorId,
             nowUtc)));
 
-        foreach (var assignment in ownAssignments)
+        foreach (var assignment in ownAssignments.Where(_ => addedIds.Length > 0))
         {
             IReadOnlyList<DesiredStateManifestAsset> assets;
             try

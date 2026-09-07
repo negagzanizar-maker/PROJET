@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import type { Session } from './App'
+import { loadList, readProblem as readApiProblem } from './api'
+import PlaylistEditor from './operations/PlaylistEditor'
 import { deviceName, formatDate, optionalUtc } from './operations/formatters'
 import { Badge, NetworkAddresses } from './operations/presentation'
 import type {
@@ -15,15 +17,6 @@ import type {
   PostJson,
 } from './operations/types'
 
-async function readApiProblem(response: Response): Promise<string> {
-  try {
-    const problem = (await response.json()) as { title?: string }
-    return problem.title ?? 'La requête n’a pas pu être traitée.'
-  } catch {
-    return 'La requête n’a pas pu être traitée.'
-  }
-}
-
 function OperationsDashboard({ session, post }: { session: Session; post: PostJson }) {
   const tenantId = session.tenantId as string
   const canManageContent = session.tenantRole === 'TenantAdmin' || session.tenantRole === 'ContentManager'
@@ -38,35 +31,29 @@ function OperationsDashboard({ session, post }: { session: Session; post: PostJs
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [refreshedAt, setRefreshedAt] = useState<string | null>(null)
+  const [refreshing, setRefreshing] = useState(false)
   const [oneTimeSecret, setOneTimeSecret] = useState<{ label: string; value: string; expiresAtUtc: string } | null>(null)
 
   const load = useCallback(async () => {
     const paths = ['devices', 'licenses', 'contents', 'playlists', 'device-groups']
-    const responses = await Promise.all(paths.map((path) => fetch(
-      `/api/v1/tenants/${tenantId}/${path}`,
-      { credentials: 'same-origin', headers: { Accept: 'application/json' } },
-    )))
-    const failed = responses.find((response) => !response.ok)
-    if (failed) throw new Error(await readApiProblem(failed))
     const [nextDevices, nextLicenses, nextContents, nextPlaylists, nextDeviceGroups] = await Promise.all(
-      responses.map((response) => response.json()),
-    )
+      paths.map((path) => loadList(`/api/v1/tenants/${tenantId}/${path}`)))
     setDevices(nextDevices as Device[])
     setLicenses(nextLicenses as License[])
     setContents(nextContents as ContentItem[])
     setPlaylists(nextPlaylists as Playlist[])
     setDeviceGroups(nextDeviceGroups as DeviceGroup[])
     if (canAdminister) {
-      const [membersResponse, auditResponse] = await Promise.all([
-        fetch(`/api/v1/tenants/${tenantId}/members`, { credentials: 'same-origin', headers: { Accept: 'application/json' } }),
-        fetch(`/api/v1/tenants/${tenantId}/audit-events`, { credentials: 'same-origin', headers: { Accept: 'application/json' } }),
+      const [nextMembers, nextAudit] = await Promise.all([
+        loadList<Member>(`/api/v1/tenants/${tenantId}/members`),
+        loadList<AuditEvent>(`/api/v1/tenants/${tenantId}/audit-events`),
       ])
-      if (!membersResponse.ok) throw new Error(await readApiProblem(membersResponse))
-      if (!auditResponse.ok) throw new Error(await readApiProblem(auditResponse))
-      setMembers((await membersResponse.json()) as Member[])
-      setAuditEvents((await auditResponse.json()) as AuditEvent[])
+      setMembers(nextMembers)
+      setAuditEvents(nextAudit)
     }
     setError(null)
+    setRefreshedAt(new Date().toISOString())
   }, [canAdminister, tenantId])
 
   useEffect(() => {
@@ -130,10 +117,14 @@ function OperationsDashboard({ session, post }: { session: Session; post: PostJs
       <section className="status-section" id="section-0" aria-labelledby="status-title">
         <div className="section-heading">
           <div><p className="eyebrow">Vue réelle</p><h2 id="status-title">État du parc</h2></div>
-          <button className="text-button" onClick={() => void load()} type="button">Actualiser</button>
+          <button className="text-button" disabled={refreshing} onClick={() => {
+            setRefreshing(true)
+            void load().catch((reason: Error) => setError(`Actualisation échouée : ${reason.message}. Les données affichées peuvent être anciennes.`)).finally(() => setRefreshing(false))
+          }} type="button">Actualiser</button>
         </div>
         {error && <p className="form-error" role="alert">{error}</p>}
         {notice && <p className="form-notice" role="status">{notice}</p>}
+        <p>Dernière actualisation réussie : {refreshedAt ? formatDate(refreshedAt) : 'en attente'}</p>
         <div className="metric-grid">
           <article><strong>{devices.length}</strong><span>appareils</span></article>
           <article><strong>{activeDevices.length}</strong><span>actifs</span></article>
@@ -203,16 +194,13 @@ function OperationsDashboard({ session, post }: { session: Session; post: PostJs
       <section className="data-section" id="section-4" aria-labelledby="playlists-title">
         <div className="section-heading"><div><p className="eyebrow">Publication immuable</p><h2 id="playlists-title">Playlists et affectations</h2></div><p>L’empreinte du manifeste est liée au bail signé puis vérifiée par le Raspberry Pi.</p></div>
         {canManageContent && <div className="workflow-grid">
-          <form className="stack-form" onSubmit={(event) => {
-            event.preventDefault(); const form = event.currentTarget; const values = new FormData(form)
-            void mutate(async () => { const created = await post<Playlist>(`/api/v1/tenants/${tenantId}/playlists`, { name: String(values.get('name')), description: null, items: [{ contentVersionId: String(values.get('contentVersionId')), durationMilliseconds: Number(values.get('duration')), loopVideo: false }] }); await post(`/api/v1/tenants/${tenantId}/playlists/${created.id}/versions/${created.latestVersion?.id}/publish`, {}); form.reset() }, 'Playlist publiée.')
-          }}><h3>Créer une playlist</h3><label>Nom<input name="name" maxLength={200} required /></label><label>Contenu<select name="contentVersionId" required><option value="">Sélectionner</option>{approvedContents.map((content) => <option key={content.id} value={content.latestVersion?.id}>{content.title}</option>)}</select></label><label>Durée (ms)<input name="duration" type="number" min={1000} max={86400000} defaultValue={10000} required /></label><button className="primary-button" disabled={busy || approvedContents.length === 0} type="submit">Créer et publier</button></form>
+          <PlaylistEditor contents={approvedContents} tenantId={tenantId} post={post} onCreated={(created) => { setPlaylists((current) => [...current, created]); setNotice('Brouillon enregistré. Vous pouvez maintenant le publier.') }} />
           <form className="stack-form" onSubmit={(event) => {
             event.preventDefault(); const form = event.currentTarget; const values = new FormData(form)
             void mutate(async () => { await post(`/api/v1/tenants/${tenantId}/devices/${String(values.get('deviceId'))}/assignments`, { playlistVersionId: String(values.get('playlistVersionId')), priority: Number(values.get('priority')), startsAtUtc: optionalUtc(values.get('startsAt')), endsAtUtc: optionalUtc(values.get('endsAt')), presentationTimeZone: 'UTC' }); form.reset() }, 'Playlist affectée à l’écran.')
           }}><h3>Affecter à un écran</h3><label>Playlist<select name="playlistVersionId" required><option value="">Sélectionner</option>{publishedPlaylists.map((playlist) => <option key={playlist.id} value={playlist.latestVersion?.id}>{playlist.name}</option>)}</select></label><label>Appareil<select name="deviceId" required><option value="">Sélectionner</option>{activeDevices.map((device) => <option key={device.id} value={device.id}>{device.displayName}</option>)}</select></label><label>Priorité<input name="priority" type="number" min={-1000} max={1000} defaultValue={0} required /></label><label>Début UTC (facultatif)<input name="startsAt" type="datetime-local" /></label><label>Fin UTC exclusive (facultative)<input name="endsAt" type="datetime-local" /></label><button className="primary-button" disabled={busy || publishedPlaylists.length === 0 || activeDevices.length === 0} type="submit">Publier sur l’écran</button></form>
         </div>}
-        <div className="card-list">{playlists.map((playlist) => <article key={playlist.id}><div><strong>{playlist.name}</strong><small>{playlist.latestVersion?.itemCount ?? 0} élément(s)</small></div><Badge value={playlist.latestVersion?.publicationState ?? 'vide'} /></article>)}</div>
+        <div className="card-list">{playlists.map((playlist) => <article key={playlist.id}><div><strong>{playlist.name}</strong><small>{playlist.latestVersion?.itemCount ?? 0} élément(s)</small></div><Badge value={playlist.latestVersion?.publicationState ?? 'vide'} />{canManageContent && playlist.latestVersion?.publicationState === 'draft' && <button type="button" disabled={busy} onClick={() => void mutate(async () => { await post(`/api/v1/tenants/${tenantId}/playlists/${playlist.id}/versions/${playlist.latestVersion?.id}/publish`, {}) }, 'Playlist publiée.')}>Publier le brouillon</button>}</article>)}</div>
       </section>
 
       <section className="data-section" id="section-5" aria-labelledby="groups-title">

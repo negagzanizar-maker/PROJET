@@ -5,6 +5,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="DisplayControl.DeviceAgent.Tests" />
     <ProjectReference Include="..\DisplayControl.Application\DisplayControl.Application.csproj" />
   </ItemGroup>
 
@@ -15,4 +16,8 @@
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
   </ItemGroup>
+  <Target Name="RequirePlayerAssetsForPublish" BeforeTargets="PrepareForPublish">
+    <Error Condition="!Exists('$(MSBuildProjectDirectory)/../../apps/player-web/dist/index.html')"
+           Text="Player assets are missing. Run npm run build --workspace player-web before publishing the agent." />
+  </Target>
 </Project>

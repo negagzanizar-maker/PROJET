@@ -18,6 +18,35 @@ public sealed class PlayerStateStore(TimeProvider timeProvider)
     private DateTimeOffset? _authorizationExpiresAtUtc;
     private long? _authorizationStartedTimestamp;
     private TimeSpan? _authorizationDuration;
+    private string? _manifestSha256;
+
+    public bool RenewReady(Guid deviceId, Guid desiredStateId, long version, string manifestSha256,
+        DateTimeOffset expiresAtUtc, DateTimeOffset trustedNowUtc)
+    {
+        lock (_gate)
+        {
+            ExpireAuthorizationIfRequired();
+            if (_state.Status != "ready" || _state.DeviceId != deviceId ||
+                _manifest?.DesiredStateId != desiredStateId || _manifest.Version != version ||
+                !string.Equals(_manifestSha256, manifestSha256, StringComparison.Ordinal)) return false;
+            SetAuthorization(expiresAtUtc, trustedNowUtc);
+            return true;
+        }
+    }
+
+    public bool ReportPlayback(PlaybackReport report)
+    {
+        lock (_gate)
+        {
+            ExpireAuthorizationIfRequired();
+            if (_manifest?.DesiredStateId != report.DesiredStateId || _manifest.Version != report.Version ||
+                !_assetFiles.ContainsKey(report.ContentVersionId) ||
+                !(report.Status == "playing" && report.ErrorCode is null ||
+                  report.Status == "error" && report.ErrorCode is "media_error" or "media_stalled")) return false;
+            _state = _state with { SafeReasonCode = report.ErrorCode, UpdatedAtUtc = timeProvider.GetUtcNow() };
+            return true;
+        }
+    }
 
     public PlayerStateSnapshot Snapshot()
     {
@@ -110,6 +139,9 @@ public sealed class PlayerStateStore(TimeProvider timeProvider)
     {
         lock (_gate)
         {
+            ExpireAuthorizationIfRequired();
+            // A replacement lease never extends the old manifest's authorization.
+            if (_state.Status == "ready" && _state.DeviceId == deviceId) return;
             _manifest = null;
             _assetFiles = new Dictionary<Guid, PlayerAssetFile>();
             SetAuthorization(authorizationExpiresAtUtc, trustedNowUtc);
@@ -122,13 +154,15 @@ public sealed class PlayerStateStore(TimeProvider timeProvider)
         ActivePlayerManifest manifest,
         IReadOnlyDictionary<Guid, PlayerAssetFile> assetFiles,
         DateTimeOffset authorizationExpiresAtUtc,
-        DateTimeOffset trustedNowUtc)
+        DateTimeOffset trustedNowUtc,
+        string? manifestSha256 = null)
     {
         ArgumentNullException.ThrowIfNull(manifest);
         ArgumentNullException.ThrowIfNull(assetFiles);
         lock (_gate)
         {
             _manifest = manifest;
+            _manifestSha256 = manifestSha256;
             _assetFiles = new Dictionary<Guid, PlayerAssetFile>(assetFiles);
             SetAuthorization(authorizationExpiresAtUtc, trustedNowUtc);
             Set("ready", "Playing", null, deviceId, manifest.Version);
@@ -188,6 +222,8 @@ public sealed class PlayerStateStore(TimeProvider timeProvider)
             AuthorizationRemainingMilliseconds(),
             timeProvider.GetUtcNow());
 }
+
+public sealed record PlaybackReport(Guid DesiredStateId, long Version, Guid ContentVersionId, string Status, string? ErrorCode);
 
 public sealed record PlayerStateSnapshot(
     string Status,

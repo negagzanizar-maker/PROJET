@@ -15,5 +15,9 @@ export function deviceName(devices: Device[], deviceId: string) {
 
 export function optionalUtc(value: FormDataEntryValue | null) {
   const text = typeof value === 'string' ? value.trim() : ''
-  return text ? new Date(text).toISOString() : null
+  if (!text) return null
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(text)) throw new Error('Date UTC invalide.')
+  const date = new Date(`${text}Z`)
+  if (!Number.isFinite(date.getTime()) || !date.toISOString().startsWith(text)) throw new Error('Date UTC invalide.')
+  return date.toISOString()
 }

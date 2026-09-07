@@ -55,6 +55,11 @@ public sealed class ContentCacheStore : IDisposable
     {
         ArgumentNullException.ThrowIfNull(client);
         ArgumentNullException.ThrowIfNull(protectedObjectHashes);
+        // Bound an entire synchronization attempt, including ResponseHeadersRead bodies.
+        // Verified partial files are resumed on the next heartbeat.
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deadline.CancelAfter(TimeSpan.FromSeconds(30));
+        cancellationToken = deadline.Token;
         if (desiredStateId == Guid.Empty || desiredStateVersion <= 0 || !IsSha256Hex(expectedManifestSha256))
         {
             throw new InvalidDataException("Desired-state cache bindings are invalid.");

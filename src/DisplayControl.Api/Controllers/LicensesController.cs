@@ -1,7 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 using System.Security.Claims;
 using System.Text.Json;
-
+using DisplayControl.Api.Pagination;
 using DisplayControl.Api.Security;
 using DisplayControl.Domain.Devices;
 using DisplayControl.Domain.Licensing;
@@ -25,14 +25,19 @@ public sealed class LicensesController(
     public async Task<ActionResult<IReadOnlyList<LicenseResponse>>> List(
         Guid tenantId,
         [FromQuery, Range(1, 100)] int limit = 50,
+        [FromQuery] string? cursor = null,
         CancellationToken cancellationToken = default)
     {
+        if (!CursorPage.TryReadOffset(cursor, out var offset)) return BadRequest("Invalid pagination cursor.");
         var rows = await dbContext.Licenses.AsNoTracking()
             .OrderByDescending(value => value.ExpiresAtUtc)
-            .Take(limit)
+            .ThenBy(value => value.Id)
+            .Skip(offset)
+            .Take(limit + 1)
             .ToListAsync(cancellationToken);
+        CursorPage.WriteNext(Response, offset, limit, rows.Count);
         var nowUtc = timeProvider.GetUtcNow();
-        return Ok(rows.Select(value => ToResponse(value, nowUtc)).ToArray());
+        return Ok(rows.Take(limit).Select(value => ToResponse(value, nowUtc)).ToArray());
     }
 
     [HttpGet("{licenseId:guid}")]
@@ -76,6 +81,7 @@ public sealed class LicensesController(
             return InvalidWindow();
         }
 
+        await MutationLocks.DeviceAsync(dbContext, tenantId, request.DeviceId, cancellationToken);
         var device = await dbContext.Devices.AsNoTracking().SingleOrDefaultAsync(
             value => value.Id == request.DeviceId,
             cancellationToken);
@@ -200,6 +206,12 @@ public sealed class LicensesController(
         TransferLicenseRequest request,
         CancellationToken cancellationToken)
     {
+        var sourceDeviceId = await dbContext.Licenses.AsNoTracking()
+            .Where(value => value.Id == licenseId).Select(value => (Guid?)value.DeviceId)
+            .SingleOrDefaultAsync(cancellationToken);
+        if (sourceDeviceId is null) return NotFound();
+        foreach (var deviceId in new[] { sourceDeviceId.Value, request.DestinationDeviceId }.Distinct().Order())
+            await MutationLocks.DeviceAsync(dbContext, tenantId, deviceId, cancellationToken);
         var source = await dbContext.Licenses.SingleOrDefaultAsync(
             value => value.Id == licenseId,
             cancellationToken);
@@ -285,6 +297,11 @@ public sealed class LicensesController(
         Action<DeviceLicense, DateTimeOffset> mutation,
         CancellationToken cancellationToken)
     {
+        var deviceId = await dbContext.Licenses.AsNoTracking()
+            .Where(value => value.Id == licenseId).Select(value => (Guid?)value.DeviceId)
+            .SingleOrDefaultAsync(cancellationToken);
+        if (deviceId is null) return NotFound();
+        await MutationLocks.DeviceAsync(dbContext, tenantId, deviceId.Value, cancellationToken);
         var license = await dbContext.Licenses.SingleOrDefaultAsync(value => value.Id == licenseId, cancellationToken);
         if (license is null)
         {
@@ -309,6 +326,16 @@ public sealed class LicensesController(
         catch (InvalidOperationException exception)
         {
             return ConflictProblem("invalid_license_state", exception.Message);
+        }
+
+        if (license.ControlState != LicenseControlState.Revoked && await dbContext.Licenses.AnyAsync(
+            value => value.Id != license.Id && value.DeviceId == license.DeviceId &&
+                value.ControlState != LicenseControlState.Revoked &&
+                license.ValidFromUtc < value.ExpiresAtUtc && license.ExpiresAtUtc > value.ValidFromUtc,
+            cancellationToken))
+        {
+            await dbContext.Entry(license).ReloadAsync(cancellationToken);
+            return ConflictProblem("license_window_overlap", "The device already has an overlapping licence interval.");
         }
 
         var actorId = CurrentUserId();

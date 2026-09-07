@@ -1,3 +1,4 @@
+using DisplayControl.Api.Security;
 using DisplayControl.Application.Content;
 using DisplayControl.Domain.Content;
 using DisplayControl.Domain.Scheduling;
@@ -108,6 +109,16 @@ public sealed class DesiredStateCompilationService(DisplayControlDbContext dbCon
         IReadOnlyList<DesiredStateManifestAsset> assets,
         CancellationToken cancellationToken)
     {
+        await MutationLocks.SchedulingAsync(dbContext, tenantId, cancellationToken);
+        var existing = dbContext.DesiredStates.Local.FirstOrDefault(value =>
+            value.DeviceId == deviceId && value.SourceDeviceAssignmentId == sourceDeviceAssignmentId &&
+            value.SourceGroupAssignmentId == sourceGroupAssignmentId);
+        existing ??= await dbContext.DesiredStates.Where(value =>
+            value.DeviceId == deviceId && value.SourceDeviceAssignmentId == sourceDeviceAssignmentId &&
+            value.SourceGroupAssignmentId == sourceGroupAssignmentId)
+            .OrderByDescending(value => value.Version).FirstOrDefaultAsync(cancellationToken);
+        if (existing is not null) return existing;
+
         var persistedMaximum = await dbContext.DesiredStates
             .Where(value => value.DeviceId == deviceId)
             .MaxAsync(value => (long?)value.Version, cancellationToken) ?? 0;

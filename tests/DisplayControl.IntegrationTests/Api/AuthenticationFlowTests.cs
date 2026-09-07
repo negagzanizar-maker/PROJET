@@ -69,6 +69,7 @@ public sealed class AuthenticationFlowTests : IClassFixture<AuthenticationFlowFi
             Assert.Equal(HttpStatusCode.Unauthorized, wrongPassword.StatusCode);
         }
 
+        string preMfaCookie;
         using (var signIn = await PostAsync(
             client,
             "/api/v1/auth/sign-in",
@@ -78,6 +79,8 @@ public sealed class AuthenticationFlowTests : IClassFixture<AuthenticationFlowFi
             Assert.Equal(HttpStatusCode.Accepted, signIn.StatusCode);
             var status = await signIn.Content.ReadFromJsonAsync<AuthenticationStatusResponse>();
             Assert.Equal("mfa_enrollment_required", status?.Status);
+            preMfaCookie = signIn.Headers.GetValues("Set-Cookie")
+                .Single(value => value.StartsWith("__Host-dc.session=", StringComparison.Ordinal)).Split(';')[0];
         }
 
         var enrollmentSession = await GetSessionAsync(client);
@@ -126,6 +129,37 @@ public sealed class AuthenticationFlowTests : IClassFixture<AuthenticationFlowFi
         Assert.Equal("full", authenticatedSession.AuthenticationStage);
         Assert.True(authenticatedSession.MfaSatisfied);
         Assert.Equal("TenantAdmin", authenticatedSession.TenantRole);
+
+        using (var staleClient = _fixture.CreateClient(handleCookies: false))
+        {
+            staleClient.DefaultRequestHeaders.Add("Cookie", preMfaCookie);
+            using var staleResponse = await staleClient.GetAsync("/api/v1/auth/sessions");
+            Assert.Equal(HttpStatusCode.Unauthorized, staleResponse.StatusCode);
+        }
+
+        var activeSessions = await client.GetFromJsonAsync<List<UserSessionResponse>>("/api/v1/auth/sessions");
+        Assert.Single(activeSessions!, value => value.IsCurrent);
+        using (var otherClient = _fixture.CreateClient())
+        {
+            var otherAnonymous = await GetSessionAsync(otherClient);
+            using var otherSignIn = await PostAsync(otherClient, "/api/v1/auth/sign-in",
+                new { email = AuthenticationFlowFixture.AdminEmail, password = AuthenticationFlowFixture.AdminPassword },
+                otherAnonymous.CsrfToken);
+            Assert.Equal(HttpStatusCode.Accepted, otherSignIn.StatusCode);
+            var sessions = await client.GetFromJsonAsync<List<UserSessionResponse>>("/api/v1/auth/sessions");
+            var otherSession = Assert.Single(sessions!, value => !value.IsCurrent);
+            using var revoke = await PostAsync(client, $"/api/v1/auth/sessions/{otherSession.Id}/revoke",
+                new { }, authenticatedSession.CsrfToken);
+            Assert.Equal(HttpStatusCode.NoContent, revoke.StatusCode);
+            using var revokedSession = await otherClient.GetAsync("/api/v1/session");
+            Assert.Equal(HttpStatusCode.Unauthorized, revokedSession.StatusCode);
+        }
+
+        using (var missingSession = await PostAsync(client,
+            $"/api/v1/auth/sessions/{Guid.NewGuid()}/revoke", new { }, authenticatedSession.CsrfToken))
+        {
+            Assert.Equal(HttpStatusCode.NotFound, missingSession.StatusCode);
+        }
 
         InvitationCreatedResponse createdInvitation;
         using (var invitation = await PostAsync(
@@ -1289,11 +1323,11 @@ public sealed class AuthenticationFlowFixture : IAsyncLifetime
         previous?.Dispose();
     }
 
-    public HttpClient CreateClient() => (_factory ?? throw new InvalidOperationException("Fixture is not initialized."))
+    public HttpClient CreateClient(bool handleCookies = true) => (_factory ?? throw new InvalidOperationException("Fixture is not initialized."))
         .CreateClient(new WebApplicationFactoryClientOptions
         {
             BaseAddress = new Uri("https://localhost"),
-            HandleCookies = true,
+            HandleCookies = handleCookies,
             AllowAutoRedirect = false
         });
 

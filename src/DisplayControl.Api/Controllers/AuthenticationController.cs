@@ -108,7 +108,8 @@ public sealed class AuthenticationController(
             var confirmedMfa = await dbContext.UserMfaSecrets.AnyAsync(
                 value => value.UserId == user.Id && value.ConfirmedAtUtc != null,
                 cancellationToken);
-            var mfaRequired = isPlatformAdministrator || membership?.Role == TenantRole.TenantAdmin || user.TwoFactorEnabled;
+            var mfaRequired = isPlatformAdministrator ||
+                membership?.Role is TenantRole.TenantAdmin or TenantRole.ContentManager || user.TwoFactorEnabled;
             var authenticationStage = !mfaRequired
                 ? SessionClaimTypes.FullStage
                 : confirmedMfa

@@ -40,6 +40,47 @@ async function expectNoWcagViolations(page: Page) {
   expect(results.violations).toEqual([])
 }
 
+test('mobile viewer navigation links resolve to visible sections', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.route('**/api/v1/**', (route) => {
+    if (new URL(route.request().url()).pathname === '/api/v1/session') {
+      return fulfilJson(route, { ...platformSession, tenantId: 'tenant', tenantRole: 'Viewer' })
+    }
+    return fulfilJson(route, [])
+  })
+  await page.goto('http://127.0.0.1:4173/')
+  const navigation = page.getByRole('navigation')
+  await expect(navigation).toBeVisible()
+  await expect(navigation.getByRole('link', { name: 'Utilisateurs' })).toHaveCount(0)
+  const targets = await navigation.getByRole('link').evaluateAll((links) => links.map((link) => link.getAttribute('href')!))
+  for (const target of targets) await expect(page.locator(target)).toBeVisible()
+})
+
+test('MFA step-up refreshes CSRF before the next account mutation', async ({ page }) => {
+  let rotated = false
+  await page.route('**/api/v1/**', (route) => {
+    const path = new URL(route.request().url()).pathname
+    if (path === '/api/v1/session') return fulfilJson(route, { ...platformSession, csrfToken: rotated ? 'rotated-csrf' : 'original-csrf' })
+    if (path === '/api/v1/auth/mfa/step-up') {
+      expect(route.request().headers()['x-csrf-token']).toBe('original-csrf')
+      rotated = true
+      return fulfilJson(route, { status: 'authenticated' })
+    }
+    if (path === '/api/v1/auth/mfa/recovery/regenerate') {
+      expect(route.request().headers()['x-csrf-token']).toBe('rotated-csrf')
+      return fulfilJson(route, { recoveryCodes: ['test-recovery-code'] })
+    }
+    return fulfilJson(route, [])
+  })
+  await page.goto('http://127.0.0.1:4173/')
+  const account = page.locator('#account-security')
+  await account.getByLabel('Code TOTP', { exact: true }).fill('123456')
+  await account.getByRole('button', { name: 'Confirmer mon identité' }).click()
+  await expect(account.getByText('Preuve MFA renouvelée.')).toBeVisible()
+  await account.getByRole('button', { name: 'Régénérer les codes de récupération' }).click()
+  await expect(page.getByText('test-recovery-code')).toBeVisible()
+})
+
 test('sign-in uses the CSRF session token and opens the platform dashboard', async ({ page }) => {
   let authenticated = false
 

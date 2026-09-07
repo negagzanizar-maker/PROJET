@@ -1,7 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 using System.Security.Claims;
 using System.Text.Json;
-
+using DisplayControl.Api.Pagination;
 using DisplayControl.Api.Security;
 using DisplayControl.Domain.Content;
 using DisplayControl.Domain.Operations;
@@ -24,12 +24,18 @@ public sealed class PlaylistsController(
     public async Task<ActionResult<IReadOnlyList<PlaylistResponse>>> List(
         Guid tenantId,
         [FromQuery, Range(1, 100)] int limit = 50,
+        [FromQuery] string? cursor = null,
         CancellationToken cancellationToken = default)
     {
+        if (!CursorPage.TryReadOffset(cursor, out var offset)) return BadRequest("Invalid pagination cursor.");
         var playlists = await dbContext.Playlists.AsNoTracking()
             .OrderByDescending(value => value.UpdatedAtUtc)
-            .Take(limit)
+            .ThenBy(value => value.Id)
+            .Skip(offset)
+            .Take(limit + 1)
             .ToListAsync(cancellationToken);
+        CursorPage.WriteNext(Response, offset, limit, playlists.Count);
+        playlists = playlists.Take(limit).ToList();
         var ids = playlists.Select(value => value.Id).ToArray();
         var versions = await dbContext.PlaylistVersions.AsNoTracking()
             .Where(value => ids.Contains(value.PlaylistId))
@@ -37,7 +43,14 @@ public sealed class PlaylistsController(
             .ToListAsync(cancellationToken);
         var latest = versions.GroupBy(value => value.PlaylistId)
             .ToDictionary(group => group.Key, group => group.First());
-        return Ok(playlists.Select(value => ToResponse(value, latest.GetValueOrDefault(value.Id), 0)).ToArray());
+        var latestIds = latest.Values.Select(value => value.Id).ToArray();
+        var counts = await dbContext.PlaylistItems.AsNoTracking()
+            .Where(value => latestIds.Contains(value.PlaylistVersionId))
+            .GroupBy(value => value.PlaylistVersionId)
+            .Select(group => new { Id = group.Key, Count = group.Count() })
+            .ToDictionaryAsync(value => value.Id, value => value.Count, cancellationToken);
+        return Ok(playlists.Select(value => ToResponse(value, latest.GetValueOrDefault(value.Id),
+            latest.TryGetValue(value.Id, out var version) ? counts.GetValueOrDefault(version.Id) : 0)).ToArray());
     }
 
     [HttpPost]

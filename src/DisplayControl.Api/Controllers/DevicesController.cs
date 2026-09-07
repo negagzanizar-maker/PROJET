@@ -1,7 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 using System.Security.Claims;
 using System.Text.Json;
-
+using DisplayControl.Api.Pagination;
 using DisplayControl.Api.Security;
 using DisplayControl.Application.Security;
 using DisplayControl.Domain.Devices;
@@ -26,13 +26,18 @@ public sealed class DevicesController(
     public async Task<ActionResult<IReadOnlyList<DeviceSummaryResponse>>> List(
         Guid tenantId,
         [FromQuery, Range(1, 100)] int limit = 50,
+        [FromQuery] string? cursor = null,
         CancellationToken cancellationToken = default)
     {
+        if (!CursorPage.TryReadOffset(cursor, out var offset)) return BadRequest("Invalid cursor.");
         var devices = await dbContext.Devices.AsNoTracking()
             .OrderBy(value => value.DisplayName)
             .ThenBy(value => value.Id)
-            .Take(limit)
+            .Skip(offset)
+            .Take(limit + 1)
             .ToListAsync(cancellationToken);
+        CursorPage.WriteNext(Response, offset, limit, devices.Count);
+        devices = devices.Take(limit).ToList();
         var deviceIds = devices.Select(value => value.Id).ToArray();
         var licenses = await dbContext.Licenses.AsNoTracking()
             .Where(value => deviceIds.Contains(value.DeviceId))

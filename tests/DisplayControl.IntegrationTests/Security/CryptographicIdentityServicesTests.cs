@@ -12,6 +12,24 @@ namespace DisplayControl.IntegrationTests.Security;
 public sealed class CryptographicIdentityServicesTests
 {
     [Fact]
+    public void LeaseVerificationTrustSetIncludesCurrentAndRetiringKeysAndRejectsInvalidKeys()
+    {
+        using var retiring = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        using var signer = new EcdsaLicenseLeaseSigner(ECDsa.Create(ECCurve.NamedCurves.nistP256),
+            [retiring.ExportSubjectPublicKeyInfoPem()]);
+        Assert.Equal(2, signer.VerificationKeys.Count);
+        Assert.Equal(signer.VerificationKey, signer.VerificationKeys[0]);
+        Assert.Equal(Convert.ToHexStringLower(SHA256.HashData(retiring.ExportSubjectPublicKeyInfo()).AsSpan(0, 16)),
+            signer.VerificationKeys[1].KeyId);
+
+        using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        Assert.Throws<ArgumentException>(() => new EcdsaLicenseLeaseSigner(key, [key.ExportSubjectPublicKeyInfoPem()]));
+        using var wrongCurve = ECDsa.Create(ECCurve.NamedCurves.nistP384);
+        Assert.Throws<ArgumentException>(() => new EcdsaLicenseLeaseSigner(key, [wrongCurve.ExportSubjectPublicKeyInfoPem()]));
+        Assert.Throws<ArgumentException>(() => new EcdsaLicenseLeaseSigner(key, [retiring.ExportECPrivateKeyPem()]));
+    }
+
+    [Fact]
     public void SecureTokenIsHighEntropyUrlSafeAndPepperBound()
     {
         var service = new HmacSecureTokenService(Enumerable.Repeat((byte)0xA5, 32).ToArray());

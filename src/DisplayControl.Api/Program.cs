@@ -231,7 +231,8 @@ else
 {
     licenseLeaseSigner = LicenseLeaseSignerFactory.LoadFileBacked(
         builder.Configuration["Security:LicenseSigningKey:PrivateKeyPath"] ?? string.Empty,
-        builder.Configuration["Security:LicenseSigningKey:Password"] ?? string.Empty);
+        builder.Configuration["Security:LicenseSigningKey:Password"] ?? string.Empty,
+        builder.Configuration.GetSection("Security:LicenseSigningKey:VerificationPublicKeyPaths").Get<string[]>());
 }
 
 builder.Services.AddSingleton<ILicenseLeaseSigner>(licenseLeaseSigner);
@@ -361,6 +362,7 @@ builder.Services.AddAuthorization(options =>
         AuthorizationPolicies.TenantContentManager,
         policy => policy
             .RequireClaim(SessionClaimTypes.AuthenticationStage, SessionClaimTypes.FullStage)
+            .RequireClaim(SessionClaimTypes.AuthenticationMethod, "mfa")
             .RequireClaim(
                 SessionClaimTypes.TenantRole,
                 nameof(TenantRole.TenantAdmin),
@@ -471,6 +473,7 @@ builder.Services
     .AddControllers(options =>
     {
         options.Filters.AddService<ApiAntiforgeryFilter>();
+        options.Filters.Add<TenantTransactionCommitFilter>();
         options.Filters.AddService<AuthenticationAccountRateLimitFilter>();
     })
     .AddJsonOptions(options => options.JsonSerializerOptions.Converters.Add(

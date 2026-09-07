@@ -6,6 +6,7 @@ public sealed class Worker(
     ILogger<Worker> logger,
     DeviceControlClient controlClient,
     PlayerStateStore playerState,
+    AgentHealthStore health,
     IOptions<AgentRuntimeOptions> runtimeOptions) : BackgroundService
 {
     private readonly AgentRuntimeOptions _runtimeOptions = runtimeOptions.Value;
@@ -20,6 +21,7 @@ public sealed class Worker(
             try
             {
                 await controlClient.SynchronizeOnceAsync(stoppingToken);
+                health.RecordCycle(true);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -27,6 +29,7 @@ public sealed class Worker(
             }
             catch (Exception exception)
             {
+                health.RecordCycle(false);
                 playerState.SetNotLicensed("agent_cycle_failed");
                 AgentLog.CycleFailed(logger, exception.GetType().Name);
             }

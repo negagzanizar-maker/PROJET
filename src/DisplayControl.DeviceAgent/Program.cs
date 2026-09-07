@@ -17,11 +17,14 @@ builder.Services.AddSingleton<AgentStateStore>();
 builder.Services.AddSingleton<ContentCacheStore>();
 builder.Services.AddSingleton<DeviceInventoryCollector>();
 builder.Services.AddSingleton<PlayerStateStore>();
+builder.Services.AddSingleton<AgentHealthStore>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddHttpClient<DeviceControlClient>();
 builder.Services.AddHostedService<Worker>();
 
 var app = builder.Build();
+var releaseVersionPath = Path.Combine(AppContext.BaseDirectory, "release-version");
+var releaseVersion = File.Exists(releaseVersionPath) ? File.ReadAllText(releaseVersionPath).Trim() : null;
 app.Use(async (context, next) =>
 {
     context.Response.OnStarting(() =>
@@ -41,7 +44,27 @@ app.Use(async (context, next) =>
 app.UseDefaultFiles();
 app.UseStaticFiles();
 app.MapGet("/player/v1/state", (PlayerStateStore state) => Results.Ok(state.Snapshot()));
-app.MapGet("/player/v1/health", () => Results.Ok(new { status = "healthy" }));
+app.MapPost("/player/v1/playback-report", (HttpContext context, PlaybackReport report, PlayerStateStore state) =>
+{
+    // Browsers must originate from this loopback application, never a remote website.
+    var origin = context.Request.Headers.Origin.ToString();
+    if (!string.Equals(origin, $"{context.Request.Scheme}://{context.Request.Host}", StringComparison.Ordinal))
+        return Results.StatusCode(StatusCodes.Status403Forbidden);
+    return state.ReportPlayback(report) ? Results.NoContent() : Results.BadRequest();
+});
+app.MapGet("/player/v1/health", (AgentHealthStore health, PlayerStateStore state,
+    Microsoft.Extensions.Options.IOptions<AgentRuntimeOptions> options) =>
+{
+    var fresh = health.IsFresh(options.Value.HeartbeatIntervalSeconds);
+    return Results.Json(new
+    {
+        status = fresh ? "healthy" : "degraded",
+        player = state.Snapshot(),
+        version = typeof(AgentHealthStore).Assembly.GetName().Version?.ToString(),
+        releaseVersion
+    },
+        statusCode: fresh ? 200 : 503);
+});
 app.MapGet("/player/v1/manifest", (PlayerStateStore state) => state.ManifestSnapshot() is { } manifest
     ? Results.Ok(manifest)
     : Results.NotFound());

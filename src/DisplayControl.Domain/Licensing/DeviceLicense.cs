@@ -145,15 +145,17 @@ public sealed class DeviceLicense : TenantOwnedEntity
             throw new InvalidOperationException("The issued lease is outside the licence authorization bounds.");
         }
 
-        LatestIssuedLeaseExpiryUtc = leaseExpiresAtUtc;
+        LatestIssuedLeaseExpiryUtc = LatestIssuedLeaseExpiryUtc is { } outstanding && outstanding > leaseExpiresAtUtc
+            ? outstanding
+            : leaseExpiresAtUtc;
         Touch(issuedAtUtc);
     }
 
     private void EnsureNotRevoked()
     {
-        if (ControlState == LicenseControlState.Revoked)
+        if (ControlState is LicenseControlState.Revoked or LicenseControlState.TransferPending)
         {
-            throw new InvalidOperationException("A revoked licence is terminal.");
+            throw new InvalidOperationException("A revoked or transferred licence cannot be modified.");
         }
     }
 

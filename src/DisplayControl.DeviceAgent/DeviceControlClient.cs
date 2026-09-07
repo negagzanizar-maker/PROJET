@@ -339,10 +339,11 @@ public sealed class DeviceControlClient(
             return;
         }
 
-        if (heartbeat.Lease is null || !MatchesPinnedKey(heartbeat.Lease, state.LicenseVerificationKey) ||
+        var verificationKey = SelectAuthenticatedVerificationKey(heartbeat, state.LicenseVerificationKey);
+        if (heartbeat.Lease is null || verificationKey is null || !MatchesPinnedKey(heartbeat.Lease, verificationKey) ||
             !LicenseLeaseTokenCodec.TryValidate(
                 heartbeat.Lease.Token,
-                state.LicenseVerificationKey,
+                verificationKey,
                 state.TenantId,
                 state.DeviceId,
                 state.CertificateId,
@@ -356,6 +357,7 @@ public sealed class DeviceControlClient(
 
         var authorizedState = state with
         {
+            LicenseVerificationKey = verificationKey,
             LastHeartbeatSequence = sequence,
             TrustedServerTimeHighWaterUtc = highWater,
             CurrentLeaseToken = heartbeat.Lease.Token,
@@ -385,6 +387,13 @@ public sealed class DeviceControlClient(
             return;
         }
 
+        if (playerState.RenewReady(authorizedState.DeviceId, desiredStateId, desiredStateVersion,
+                manifestSha256, leasePayload!.ExpiresAtUtc, heartbeat.ServerTimeUtc))
+        {
+            await stateStore.SaveAsync(authorizedState with { AppliedDesiredStateVersion = desiredStateVersion }, cancellationToken);
+            return;
+        }
+
         var protectedCacheHashes = playerState.ActiveAssetHashesSnapshot();
         playerState.SetSynchronizing(
             authorizedState.DeviceId,
@@ -411,7 +420,8 @@ public sealed class DeviceControlClient(
                 activation.Manifest,
                 activation.AssetFiles,
                 leasePayload.ExpiresAtUtc,
-                activationTimeUtc);
+                activationTimeUtc,
+                manifestSha256);
             await stateStore.SaveAsync(
                 authorizedState with { AppliedDesiredStateVersion = desiredStateVersion },
                 cancellationToken);
@@ -498,6 +508,34 @@ public sealed class DeviceControlClient(
         string.Equals(lease.KeyId, pinnedKey.KeyId, StringComparison.Ordinal) &&
         string.Equals(lease.Algorithm, pinnedKey.Algorithm, StringComparison.Ordinal) &&
         string.Equals(lease.SubjectPublicKeyInfoPem, pinnedKey.SubjectPublicKeyInfoPem, StringComparison.Ordinal);
+
+    internal static LicenseLeaseVerificationKey? SelectAuthenticatedVerificationKey(
+        HeartbeatResponseContract heartbeat, LicenseLeaseVerificationKey pinnedKey)
+    {
+        // This response arrived over validated server TLS using the enrolled mTLS identity.
+        // Persist the selected key atomically with its validated lease; offline trust never changes.
+        if (heartbeat.LicenseVerificationKeys is null) return pinnedKey;
+        if (heartbeat.LicenseVerificationKeys.Count is < 1 or > 4) return null;
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        try
+        {
+            foreach (var candidate in heartbeat.LicenseVerificationKeys)
+            {
+                if (candidate is null || candidate.Algorithm != "ES256" ||
+                    candidate.SubjectPublicKeyInfoPem is not { Length: <= 1024 } || !ids.Add(candidate.KeyId)) return null;
+                using var key = ECDsa.Create();
+                key.ImportFromPem(candidate.SubjectPublicKeyInfoPem);
+                var digest = SHA256.HashData(key.ExportSubjectPublicKeyInfo());
+                if (key.KeySize != 256 || key.ExportParameters(false).Curve.Oid.Value != "1.2.840.10045.3.1.7" ||
+                    candidate.KeyId != Convert.ToHexStringLower(digest.AsSpan(0, 16))) return null;
+            }
+            return heartbeat.LicenseVerificationKeys.SingleOrDefault(key => key.KeyId == heartbeat.Lease?.KeyId);
+        }
+        catch (Exception exception) when (exception is CryptographicException or ArgumentException)
+        {
+            return null;
+        }
+    }
 
     private static bool DesiredStateMatches(
         DesiredStateContract desiredState,
@@ -690,7 +728,8 @@ internal sealed record HeartbeatResponseContract(
     string LicenseStatus,
     LeaseContract? Lease,
     DateTimeOffset? LicenseExpiresAtUtc,
-    DesiredStateContract DesiredState);
+    DesiredStateContract DesiredState,
+    IReadOnlyList<LicenseLeaseVerificationKey>? LicenseVerificationKeys = null);
 
 internal sealed record LeaseContract(
     string Token,

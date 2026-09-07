@@ -46,6 +46,7 @@ public sealed class DeviceHeartbeatWorkflow(
             return new DeviceHeartbeatWorkflowResult(DeviceHeartbeatOutcome.Invalid);
         }
 
+        await MutationLocks.DeviceAsync(dbContext, tenantId, deviceId, cancellationToken);
         var nowUtc = timeProvider.GetUtcNow();
         var requestSha256 = SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(request));
         var idempotencyLockKey = $"heartbeat:{deviceId:N}:{request.BootId:N}";
@@ -155,7 +156,8 @@ public sealed class DeviceHeartbeatWorkflow(
                 "notLicensed",
                 null,
                 null,
-                new DesiredStateSummaryResponse("notLicensed", null, null));
+                new DesiredStateSummaryResponse("notLicensed", null, null),
+                LicenseVerificationKeys: leaseSigner.VerificationKeys);
         }
         else
         {
@@ -192,7 +194,8 @@ public sealed class DeviceHeartbeatWorkflow(
                 license.ExpiresAtUtc,
                 desiredState is null
                     ? new DesiredStateSummaryResponse("licensedNoContent", null, null)
-                    : new DesiredStateSummaryResponse("available", desiredState.Id, desiredState.Version));
+                    : new DesiredStateSummaryResponse("available", desiredState.Id, desiredState.Version),
+                LicenseVerificationKeys: leaseSigner.VerificationKeys);
         }
 
         heartbeatRecord.RecordResponse(JsonSerializer.Serialize(response));

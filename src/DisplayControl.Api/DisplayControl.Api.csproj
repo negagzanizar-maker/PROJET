@@ -24,4 +24,8 @@
     </Content>
   </ItemGroup>
 
+  <Target Name="RequireAdminWebForPublish" BeforeTargets="PrepareForPublish">
+    <Error Condition="!Exists('..\..\apps\admin-web\dist\index.html')" Text="Build the web applications with npm run build before publishing the API." />
+  </Target>
+
 </Project>

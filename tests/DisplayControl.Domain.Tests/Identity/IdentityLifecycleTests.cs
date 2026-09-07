@@ -137,6 +137,29 @@ public sealed class IdentityLifecycleTests
         Assert.Equal(Now, notification.NextAttemptAtUtc);
     }
 
+    [Fact]
+    public void MfaRotationInvalidatesOldCredentialWithoutExtendingSessionLifetime()
+    {
+        var session = CreateSession(TimeSpan.FromMinutes(30), TimeSpan.FromHours(8));
+        var originalDigest = session.SessionKeyDigest.ToArray();
+        var originalConcurrencyToken = session.ConcurrencyToken;
+        var replacement = Enumerable.Repeat((byte)7, 32).ToArray();
+
+        session.RotateAfterMfa(replacement, Now.AddMinutes(1));
+        replacement[0] = 9;
+
+        Assert.False(originalDigest.AsSpan().SequenceEqual(session.SessionKeyDigest));
+        Assert.Equal(7, session.SessionKeyDigest[0]);
+        Assert.NotEqual(originalConcurrencyToken, session.ConcurrencyToken);
+        Assert.Equal(Now.AddMinutes(30), session.IdleExpiresAtUtc);
+        Assert.Equal(Now.AddHours(8), session.AbsoluteExpiresAtUtc);
+        Assert.True(session.HasRecentMfaAt(Now.AddMinutes(2), TimeSpan.FromMinutes(10)));
+        Assert.Throws<ArgumentException>(() => session.RotateAfterMfa(session.SessionKeyDigest, Now.AddMinutes(2)));
+        session.Revoke("test", Now.AddMinutes(2));
+        Assert.Throws<InvalidOperationException>(() => session.RotateAfterMfa(new byte[32], Now.AddMinutes(3)));
+        Assert.Equal(7, session.SessionKeyDigest[0]);
+    }
+
     private static Invitation CreateInvitation() => new(
         Guid.NewGuid(),
         Guid.NewGuid(),

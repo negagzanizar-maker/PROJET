@@ -11,8 +11,8 @@
 ## First-time setup
 
 1. Copy `.env.example` to `.env` and replace the database password with a long random local-only value.
-2. Run `npm ci` after `package-lock.json` exists; never use a floating package install in CI.
-3. Run `dotnet restore --locked-mode` after project lock files exist.
+2. Run `npm ci`; the repository includes its lockfile.
+3. Run `dotnet restore --locked-mode`; project lockfiles are included.
 4. Start PostgreSQL and the exact ClamAV image with `docker compose up -d postgres clamav`.
 5. Provide `ConnectionStrings__Database`; absolute dedicated paths for `Security__DataProtectionKeyDirectory` and `ContentStorage__RootDirectory`; `Security__TokenDigestPepperBase64` containing at least 32 random bytes; an ECDSA device-CA PFX path/password; and a separate encrypted ECDSA P-256 licence-signing key path/password. The API deliberately refuses to start outside `Testing` when a required security value is missing or invalid.
 6. Run the API with `dotnet run --project src/DisplayControl.Api`.
@@ -44,6 +44,12 @@ DeviceProtocol__OfflineAllowanceHours=24
 Do not commit `.env`, private keys, certificates, tokens, real customer data, or real device identifiers.
 
 ## Verification
+
+Run `./scripts/Publish-Applications.ps1` to build both web applications, publish both .NET hosts, and verify their web entry points under `artifacts/publish`. Before manually publishing either .NET host, run `npm run build`. Publishing rejects a missing frontend entry point. CI also verifies `wwwroot/index.html` in each publish directory. Rebuild the frontend after every web source change to avoid packaging stale assets.
+
+For signing-key rotation, set the optional indexed environment values `Security__LicenseSigningKey__VerificationPublicKeyPaths__0` through `__2` to absolute public SPKI PEM paths for retiring or upcoming P-256 keys. The active signing key is always included automatically; additional keys must be distinct and must contain public material only. Deploy updated agents before rotating the active signer. Offline leases retain their original expiry and devices learn the new current key at their next authenticated heartbeat.
+
+Retention now drains up to `Operations__Retention__MaximumBatchesPerRun` batches per table per run (default 100, range 1–1000), each in its own transaction. Size this with `BatchSize` and `IntervalMinutes` against observed row creation rates and monitor the logged removed counts. Repeated full runs indicate possible backlog; these limits do not establish a measured fleet capacity.
 
 ```powershell
 dotnet build DisplayControl.slnx --locked-mode

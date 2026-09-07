@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import type { Session } from './App'
+import { loadList, readProblem } from './api'
 
 type PostJson = <T>(path: string, body: unknown) => Promise<T>
 type TenantState = 'active' | 'suspended' | 'archived'
@@ -21,15 +22,6 @@ type TenantCreated = {
   invitationToken: string
 }
 
-async function readProblem(response: Response): Promise<string> {
-  try {
-    const problem = (await response.json()) as { title?: string }
-    return problem.title ?? 'La requête n’a pas pu être traitée.'
-  } catch {
-    return 'La requête n’a pas pu être traitée.'
-  }
-}
-
 function PlatformDashboard({ session, post }: { session: Session; post: PostJson }) {
   const [tenants, setTenants] = useState<PlatformTenant[]>([])
   const [busy, setBusy] = useState(false)
@@ -38,12 +30,7 @@ function PlatformDashboard({ session, post }: { session: Session; post: PostJson
   const [invitation, setInvitation] = useState<TenantCreated | null>(null)
 
   const load = useCallback(async () => {
-    const response = await fetch('/api/v1/platform/tenants', {
-      credentials: 'same-origin',
-      headers: { Accept: 'application/json' },
-    })
-    if (!response.ok) throw new Error(await readProblem(response))
-    setTenants((await response.json()) as PlatformTenant[])
+    setTenants(await loadList<PlatformTenant>('/api/v1/platform/tenants'))
     setError(null)
   }, [])
 

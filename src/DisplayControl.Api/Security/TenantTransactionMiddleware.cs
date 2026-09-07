@@ -1,5 +1,6 @@
 using DisplayControl.Infrastructure.Persistence;
 using DisplayControl.Infrastructure.Tenancy;
+using Microsoft.AspNetCore.Mvc.Controllers;
 
 namespace DisplayControl.Api.Security;
 
@@ -10,7 +11,9 @@ public sealed class TenantTransactionMiddleware(RequestDelegate next)
         ScopedTenantContext tenantContext,
         DisplayControlDbContext dbContext)
     {
-        if (tenantContext.TenantId is not Guid tenantId)
+        // Static SPA fallbacks and health endpoints do not execute tenant use cases.
+        if (tenantContext.TenantId is not Guid tenantId ||
+            context.GetEndpoint()?.Metadata.GetMetadata<ControllerActionDescriptor>() is null)
         {
             await next(context);
             return;
@@ -29,8 +32,23 @@ public sealed class TenantTransactionMiddleware(RequestDelegate next)
         }
 
         await using var transaction = await dbContext.BeginTenantTransactionAsync(tenantId, context.RequestAborted);
-        await next(context);
-        await transaction.CommitAsync(context.RequestAborted);
+        context.Items[TenantTransactionCommitFilter.TransactionKey] = transaction;
+        try
+        {
+            await next(context);
+            // MVC completes transactions before executing its result. An endpoint that
+            // bypasses MVC must not acknowledge a write before committing it.
+            if (context.Items.ContainsKey(TenantTransactionCommitFilter.TransactionKey))
+            {
+                if (context.Response.HasStarted)
+                    throw new InvalidOperationException("A tenant endpoint started its response before completing its transaction.");
+                await transaction.CommitAsync(context.RequestAborted);
+            }
+        }
+        finally
+        {
+            context.Items.Remove(TenantTransactionCommitFilter.TransactionKey);
+        }
     }
 }
 

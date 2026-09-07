@@ -76,6 +76,13 @@ jobs:
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
 
+      - name: Verify complete publish artifacts
+        run: |
+          dotnet publish src/DisplayControl.Api --configuration Release --no-restore --output artifacts/publish/api
+          dotnet publish src/DisplayControl.DeviceAgent --configuration Release --no-restore --output artifacts/publish/agent
+          test -s artifacts/publish/api/wwwroot/index.html
+          test -s artifacts/publish/agent/wwwroot/index.html
+
       - name: Run browser and accessibility tests
         run: npm run test:e2e
 
@@ -88,7 +95,7 @@ jobs:
         run: ./scripts/verify-powershell.ps1
 
       - name: Validate Linux shell scripts
-        run: bash -n deploy/pi/*.sh deploy/production/*.sh
+        run: for script in deploy/pi/*.sh deploy/production/*.sh; do bash -n "$script" || exit; done
 
       - name: Validate local service definition
         env:

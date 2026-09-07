@@ -1,7 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 using System.Security.Claims;
 using System.Text.Json;
-
+using DisplayControl.Api.Pagination;
 using DisplayControl.Api.Security;
 using DisplayControl.Domain.Identity;
 using DisplayControl.Domain.Operations;
@@ -22,12 +22,15 @@ public sealed class TenantMembersController(
     [HttpGet]
     public async Task<ActionResult<IReadOnlyList<TenantMemberResponse>>> List(
         Guid tenantId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        [FromQuery, Range(1, 200)] int limit = 100,
+        [FromQuery] string? cursor = null)
     {
+        if (!CursorPage.TryReadOffset(cursor, out var offset)) return BadRequest("Invalid cursor.");
         var members = await (
             from membership in dbContext.TenantMemberships.AsNoTracking()
             join user in dbContext.Users.AsNoTracking() on membership.UserId equals user.Id
-            orderby user.DisplayName
+            orderby user.DisplayName, membership.Id
             select new TenantMemberResponse(
                 membership.Id,
                 user.Id,
@@ -38,8 +41,11 @@ public sealed class TenantMembersController(
                 user.TwoFactorEnabled,
                 membership.AcceptedAtUtc,
                 membership.ConcurrencyToken))
+            .Skip(offset)
+            .Take(limit + 1)
             .ToListAsync(cancellationToken);
-        return Ok(members);
+        CursorPage.WriteNext(Response, offset, limit, members.Count);
+        return Ok(members.Take(limit).ToArray());
     }
 
     [HttpPost("{membershipId:guid}/role")]

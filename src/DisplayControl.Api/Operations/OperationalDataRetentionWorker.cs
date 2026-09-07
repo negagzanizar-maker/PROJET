@@ -10,6 +10,8 @@ public sealed record OperationalDataRetentionOptions(
     TimeSpan Interval,
     int BatchSize)
 {
+    public int MaximumBatchesPerRun { get; init; } = 100;
+
     public static OperationalDataRetentionOptions FromConfiguration(IConfiguration configuration)
     {
         var connectionString = configuration.GetConnectionString("MaintenanceDatabase");
@@ -17,11 +19,12 @@ public sealed record OperationalDataRetentionOptions(
         var auditDays = configuration.GetValue<int?>("Operations:Retention:AuditDays");
         var intervalMinutes = configuration.GetValue<int?>("Operations:Retention:IntervalMinutes") ?? 15;
         var batchSize = configuration.GetValue<int?>("Operations:Retention:BatchSize") ?? 1_000;
+        var maximumBatches = configuration.GetValue<int?>("Operations:Retention:MaximumBatchesPerRun") ?? 100;
         if (string.IsNullOrWhiteSpace(connectionString) ||
             heartbeatDays is < 1 or > 3_650 ||
             auditDays is < 30 or > 3_650 ||
             intervalMinutes is < 5 or > 1_440 ||
-            batchSize is < 100 or > 10_000)
+            batchSize is < 100 or > 10_000 || maximumBatches is < 1 or > 1_000)
         {
             throw new InvalidOperationException(
                 "Enabled retention requires a maintenance connection and valid retention, interval, and batch limits.");
@@ -39,7 +42,8 @@ public sealed record OperationalDataRetentionOptions(
             TimeSpan.FromDays(heartbeatDays),
             auditDays is null ? null : TimeSpan.FromDays(auditDays.Value),
             TimeSpan.FromMinutes(intervalMinutes),
-            batchSize);
+            batchSize)
+        { MaximumBatchesPerRun = maximumBatches };
     }
 }
 
@@ -64,13 +68,13 @@ public sealed class OperationalDataRetentionWorker(
             try
             {
                 var nowUtc = timeProvider.GetUtcNow();
-                var heartbeats = await DeleteExpiredBatchAsync(
+                var heartbeats = await DeleteExpiredBatchesAsync(
                     "device_heartbeats",
                     "received_at_utc",
                     nowUtc.Subtract(options.HeartbeatRetention),
                     stoppingToken);
                 var audits = options.AuditRetention is { } auditRetention
-                    ? await DeleteExpiredBatchAsync(
+                    ? await DeleteExpiredBatchesAsync(
                         "audit_events",
                         "occurred_at_utc",
                         nowUtc.Subtract(auditRetention),
@@ -89,6 +93,32 @@ public sealed class OperationalDataRetentionWorker(
 
             await Task.Delay(options.Interval, timeProvider, stoppingToken);
         }
+    }
+
+    private async Task<int> DeleteExpiredBatchesAsync(
+        string table,
+        string timestampColumn,
+        DateTimeOffset cutoffUtc,
+        CancellationToken cancellationToken)
+    {
+        var total = 0;
+        var started = timeProvider.GetTimestamp();
+        for (var batch = 0; batch < options.MaximumBatchesPerRun; batch++)
+        {
+            if (timeProvider.GetElapsedTime(started) >= TimeSpan.FromSeconds(30))
+            {
+                break;
+            }
+
+            var deleted = await DeleteExpiredBatchAsync(table, timestampColumn, cutoffUtc, cancellationToken);
+            total += deleted;
+            if (deleted < options.BatchSize)
+            {
+                break;
+            }
+        }
+
+        return total;
     }
 
     private async Task<int> DeleteExpiredBatchAsync(

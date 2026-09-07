@@ -2,7 +2,7 @@
 
 > Working title. The official product name is still to be supplied.
 
-This repository will contain a secure multi-tenant platform for managing Raspberry Pi display devices, expiring per-device licences, and centrally assigned video, image, and text content.
+This repository contains a multi-tenant platform for managing Raspberry Pi display devices, expiring per-device licences, and centrally assigned video, image, and text content.
 
 The secure vertical slice is implemented locally: invitation/MFA administration, forced-RLS tenant data, device mTLS enrollment and rotation, expiring licences and bounded signed leases, private scanned media, immutable playlists/manifests, verified Pi caching, local kiosk playback, and an initial Playwright/axe browser gate. Production/hardware evidence and final delivery gates remain open; see the roadmap for non-claimed work.
 
@@ -28,7 +28,7 @@ The secure vertical slice is implemented locally: invitation/MFA administration,
 - Private media storage behind an abstraction; the implemented filesystem profile is single-writer and a multi-node provider remains a deployment decision
 - Containerized development and production deployment where appropriate
 
-Exact patch versions will be pinned in lockfiles and SDK configuration when Goal 2 starts.
+Exact patch versions are pinned in the package lockfiles, central package configuration, and `global.json`.
 
 ## Documentation map
 
@@ -46,6 +46,7 @@ Exact patch versions will be pinned in lockfiles and SDK configuration when Goal
 - [API outline](docs/02-architecture/API_CONTRACT.md)
 - [Threat model](docs/02-architecture/THREAT_MODEL.md)
 - [Test strategy](docs/03-testing/TEST_STRATEGY.md)
+- [September audit fixes and remaining acceptance work](docs/03-testing/evidence/2026-09-07-audit-remediation.md)
 - [French report plan](docs/04-report/RAPPORT_PLAN.md)
 - [French implementation journal](docs/04-report/JOURNAL_REALISATION.md)
 - [Development environment](docs/05-operations/DEVELOPMENT.md)

@@ -1,7 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 using System.Security.Claims;
 using System.Text.Json;
-
+using DisplayControl.Api.Pagination;
 using DisplayControl.Api.Security;
 using DisplayControl.Application.Content;
 using DisplayControl.Application.Storage;
@@ -28,12 +28,18 @@ public sealed class ContentsController(
     public async Task<ActionResult<IReadOnlyList<ContentResponse>>> List(
         Guid tenantId,
         [FromQuery, Range(1, 100)] int limit = 50,
+        [FromQuery] string? cursor = null,
         CancellationToken cancellationToken = default)
     {
+        if (!CursorPage.TryReadOffset(cursor, out var offset)) return BadRequest("Invalid pagination cursor.");
         var assets = await dbContext.ContentAssets.AsNoTracking()
             .OrderByDescending(value => value.UpdatedAtUtc)
-            .Take(limit)
+            .ThenBy(value => value.Id)
+            .Skip(offset)
+            .Take(limit + 1)
             .ToListAsync(cancellationToken);
+        CursorPage.WriteNext(Response, offset, limit, assets.Count);
+        assets = assets.Take(limit).ToList();
         var assetIds = assets.Select(value => value.Id).ToArray();
         var versions = await dbContext.ContentVersions.AsNoTracking()
             .Where(value => assetIds.Contains(value.ContentAssetId))

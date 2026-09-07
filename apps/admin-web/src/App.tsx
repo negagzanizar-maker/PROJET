@@ -3,6 +3,8 @@ import './App.css'
 import './Dashboard.css'
 import OperationsDashboard from './OperationsDashboard'
 import PlatformDashboard from './PlatformDashboard'
+import { apiRequest } from './api'
+import AccountSecurity from './AccountSecurity'
 
 export type Session = {
   authenticated: boolean
@@ -51,6 +53,7 @@ function App() {
   const [recoveryCodes, setRecoveryCodes] = useState<string[] | null>(null)
   const [authMode, setAuthMode] = useState<'sign-in' | 'forgot'>('sign-in')
   const [authNotice, setAuthNotice] = useState<string | null>(null)
+  const [useRecovery, setUseRecovery] = useState(false)
 
   const loadSession = useCallback(async () => {
     const response = await fetch('/api/v1/session', {
@@ -68,9 +71,18 @@ function App() {
     ))
   }, [loadSession])
 
+  useEffect(() => {
+    const refresh = () => { void loadSession().catch((reason: unknown) => {
+      setSession(null)
+      setLoadingError(reason instanceof Error ? reason.message : 'API indisponible.')
+    }) }
+    window.addEventListener('session-expired', refresh)
+    return () => window.removeEventListener('session-expired', refresh)
+  }, [loadSession])
+
   const post = async <T,>(path: string, body: unknown): Promise<T> => {
     if (!session?.csrfToken) throw new Error('Jeton de sécurité indisponible. Rechargez la page.')
-    const response = await fetch(path, {
+    const result = await apiRequest<T>(path, {
       method: 'POST',
       credentials: 'same-origin',
       headers: {
@@ -80,9 +92,8 @@ function App() {
       },
       body: JSON.stringify(body),
     })
-    if (!response.ok) throw new Error(await readProblem(response))
-    if (response.status === 204) return undefined as T
-    return (await response.json()) as T
+    if (path.startsWith('/api/v1/auth/mfa/') || path === '/api/v1/auth/sign-out-all') await loadSession()
+    return result
   }
 
   const runAction = async (action: () => Promise<void>) => {
@@ -104,7 +115,7 @@ function App() {
           <span className="brand-mark" aria-hidden="true">D</span>
           <h1>{loadingError ? 'Connexion à l’API impossible' : 'Initialisation sécurisée…'}</h1>
           <p>{loadingError ?? 'Création du contexte de session et du jeton CSRF.'}</p>
-          {loadingError && <button onClick={() => void loadSession()} type="button">Réessayer</button>}
+          {loadingError && <button onClick={() => void loadSession().catch((error: Error) => setLoadingError(error.message))} type="button">Réessayer</button>}
         </div>
       </main>
     )
@@ -217,8 +228,9 @@ function App() {
           <p className="eyebrow">Deuxième facteur</p>
           <h1 id="mfa-title">Vérifiez votre identité</h1>
           <p>Saisissez le code actuel de votre application d’authentification.</p>
-          <MfaCodeForm busy={busy} error={actionError} label="Vérifier" onSubmit={(code) => runAction(async () => {
-            await post('/api/v1/auth/mfa/totp', { code })
+          <button type="button" className="text-button" onClick={() => { setUseRecovery(!useRecovery); setActionError(null) }}>{useRecovery ? 'Utiliser le code TOTP' : 'Utiliser un code de récupération'}</button>
+          <MfaCodeForm recovery={useRecovery} busy={busy} error={actionError} label="Vérifier" onSubmit={(code) => runAction(async () => {
+            await post(useRecovery ? '/api/v1/auth/mfa/recovery' : '/api/v1/auth/mfa/totp', { code })
             await loadSession()
           })} />
         </section>
@@ -232,7 +244,7 @@ function App() {
         <Brand />
         <nav aria-label="Navigation principale">
           <p className="nav-label">{session.tenantId ? 'Espace client' : 'Plateforme'}</p>
-          <ul>{(session.tenantId ? tenantNavigation : platformNavigation).map((label, index) => <li key={label}><a className={index === 0 ? 'active' : undefined} href={session.tenantId ? `#section-${index}` : ['#platform-overview', '#platform-create', '#platform-tenants', '#platform-step-up'][index]}><span className="nav-dot" aria-hidden="true" />{label}</a></li>)}</ul>
+          <ul>{(session.tenantId ? tenantNavigation : platformNavigation).map((label, index) => (!session.tenantId || session.tenantRole === 'TenantAdmin' || index < 6) && <li key={label}><a href={session.tenantId ? `#section-${index}` : ['#platform-overview', '#platform-create', '#platform-tenants', '#platform-step-up'][index]}><span className="nav-dot" aria-hidden="true" />{label}</a></li>)}<li><a href="#account-security">Sécurité du compte</a></li></ul>
         </nav>
         <div className="security-note"><span aria-hidden="true">●</span><div><strong>Isolation active</strong><p>Tenant imposé par la session et PostgreSQL.</p></div></div>
       </aside>
@@ -245,6 +257,7 @@ function App() {
             await loadSession()
           })} type="button">Se déconnecter</button>
         </header>
+        {actionError && <p className="form-error" role="alert">{actionError}</p>}
         <section className="welcome" aria-labelledby="welcome-title">
           <div><p className="eyebrow">Session vérifiée</p><h2 id="welcome-title">Bonjour {session.displayName ?? session.email ?? 'administrateur'}.</h2><p>Les données ci-dessous proviennent directement de l’API du tenant lié à votre session.</p></div>
           <div className="signal" aria-label="État de sécurité : session active"><span aria-hidden="true" />{session.mfaSatisfied ? 'MFA vérifiée' : 'Session active'}</div>
@@ -252,6 +265,7 @@ function App() {
         {session.tenantId
           ? <OperationsDashboard session={session} post={post} />
           : <PlatformDashboard session={session} post={post} />}
+        <AccountSecurity post={post} onCodes={setRecoveryCodes} />
       </main>
     </div>
   )
@@ -297,13 +311,13 @@ function PasswordResetForm({ busy, email, error, onSubmit }: { busy: boolean; em
   return <main className="centered-page"><section className="auth-card wide"><Brand /><p className="eyebrow">Récupération sécurisée</p><h1>Choisir un nouveau mot de passe</h1><p>Compte : {email}</p><form className="mfa-form" onSubmit={submit}><label>Nouveau mot de passe<input autoComplete="new-password" disabled={busy} maxLength={1024} minLength={15} name="password" required type="password" /></label>{error && <p className="form-error" role="alert">{error}</p>}<button className="primary-button" disabled={busy} type="submit">Modifier le mot de passe</button></form></section></main>
 }
 
-function MfaCodeForm({ busy, error, label, onSubmit }: { busy: boolean; error: string | null; label: string; onSubmit: (code: string) => Promise<void> }) {
+function MfaCodeForm({ busy, error, label, onSubmit, recovery = false }: { busy: boolean; error: string | null; label: string; recovery?: boolean; onSubmit: (code: string) => Promise<void> }) {
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const values = new FormData(event.currentTarget)
     void onSubmit(String(values.get('code') ?? ''))
   }
-  return <form className="mfa-form" onSubmit={submit}><label>Code à six chiffres<input autoComplete="one-time-code" disabled={busy} inputMode="numeric" maxLength={6} minLength={6} name="code" pattern="[0-9]{6}" required /></label>{error && <p className="form-error" role="alert">{error}</p>}<button className="primary-button" disabled={busy} type="submit">{busy ? 'Vérification…' : label}</button></form>
+  return <form className="mfa-form" onSubmit={submit}><label>{recovery ? 'Code de récupération' : 'Code à six chiffres'}<input autoComplete="one-time-code" disabled={busy} inputMode={recovery ? 'text' : 'numeric'} maxLength={recovery ? 100 : 6} minLength={recovery ? 1 : 6} name="code" pattern={recovery ? undefined : '[0-9]{6}'} required /></label>{error && <p className="form-error" role="alert">{error}</p>}<button className="primary-button" disabled={busy} type="submit">{busy ? 'Vérification…' : label}</button></form>
 }
 
 export default App

@@ -82,7 +82,8 @@ public sealed record DeviceHeartbeatResponse(
     string LicenseStatus,
     LicenseLeaseResponse? Lease,
     DateTimeOffset? LicenseExpiresAtUtc,
-    DesiredStateSummaryResponse DesiredState);
+    DesiredStateSummaryResponse DesiredState,
+    IReadOnlyList<LicenseLeaseVerificationKey>? LicenseVerificationKeys = null);
 
 public sealed record LicenseLeaseResponse(
     string Token,

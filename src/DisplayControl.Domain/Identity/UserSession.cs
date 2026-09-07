@@ -118,6 +118,18 @@ public sealed class UserSession
             nowUtc - satisfiedAtUtc <= maximumAge;
     }
 
+    public void RotateAfterMfa(byte[] newSessionKeyDigest, DateTimeOffset satisfiedAtUtc)
+    {
+        EnsureDigest(newSessionKeyDigest, nameof(newSessionKeyDigest));
+        if (SessionKeyDigest.AsSpan().SequenceEqual(newSessionKeyDigest))
+        {
+            throw new ArgumentException("MFA must issue a different session credential.", nameof(newSessionKeyDigest));
+        }
+
+        MarkMfaSatisfied(satisfiedAtUtc);
+        SessionKeyDigest = newSessionKeyDigest.ToArray();
+    }
+
     public void Touch(DateTimeOffset seenAtUtc, TimeSpan idleLifetime)
     {
         EnsureUtc(seenAtUtc, nameof(seenAtUtc));

@@ -39,6 +39,22 @@ jobs:
           node-version: 24
           cache: npm
 
+      - name: Install web dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Audit web production dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Lint and type-check web applications
+        run: |
+          npm run lint
+          npm run typecheck
+
+      - name: Test and build web applications
+        run: |
+          npm test
+          npm run build
+
       - name: Restore .NET dependencies
         run: dotnet restore DisplayControl.slnx --locked-mode
 
@@ -56,22 +72,6 @@ jobs:
 
       - name: Test .NET
         run: dotnet test DisplayControl.slnx --configuration Release --no-build --no-restore --logger "trx;LogFilePrefix=tests" --results-directory artifacts/test-results
-
-      - name: Install web dependencies
-        run: npm ci --ignore-scripts
-
-      - name: Audit web production dependencies
-        run: npm audit --omit=dev --audit-level=high
-
-      - name: Lint and type-check web applications
-        run: |
-          npm run lint
-          npm run typecheck
-
-      - name: Test and build web applications
-        run: |
-          npm test
-          npm run build
 
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
